@@ -1,4 +1,5 @@
 from datetime import datetime
+import math
 import time
 from io import BytesIO
 import json
@@ -8,6 +9,10 @@ from urllib.request import Request, urlopen
 
 from inky.auto import auto
 from PIL import Image, ImageDraw, ImageFont
+try:
+    from PIL import ImageCms
+except Exception:
+    ImageCms = None
 
 inky = auto()
 w, h = inky.resolution
@@ -33,6 +38,7 @@ BUS_REQUESTS = [
 ]
 
 ICON_DIR = Path(__file__).resolve().parent / "assets" / "weather"
+PHOTO_DIR = Path(__file__).resolve().parent / "photos"
 ICON_FILES = {
     "clear": "clear-day.svg",
     "partly_cloudy": "cloudy-2-day.svg",
@@ -53,13 +59,13 @@ except Exception:
 
 ICON_CACHE = {}
 PALETTE_COLORS = [
-    (255, 255, 255),  # white
-    (0, 0, 0),        # black
-    (255, 0, 0),      # red
-    (0, 128, 0),      # green
-    (0, 0, 255),      # blue
-    (255, 255, 0),    # yellow
-    (255, 165, 0),    # orange
+    (0, 0, 0),        # black (index 0)
+    (255, 255, 255),  # white (index 1)
+    (0, 128, 0),      # green (index 2)
+    (0, 0, 255),      # blue (index 3)
+    (255, 0, 0),      # red (index 4)
+    (255, 255, 0),    # yellow (index 5)
+    (255, 165, 0),    # orange (index 6)
 ]
 PALETTE_IMAGE = Image.new("P", (1, 1))
 _palette = []
@@ -118,7 +124,7 @@ def get_berlin_weather():
     url = (
         "https://api.open-meteo.com/v1/forecast"
         f"?latitude={BERLIN_LAT}&longitude={BERLIN_LON}"
-        f"&current=temperature_2m,weather_code"
+        f"&current=temperature_2m,apparent_temperature,weather_code"
         f"&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max"
         f"&hourly=temperature_2m"
         f"&timezone={quote(BERLIN_TZ)}"
@@ -139,6 +145,7 @@ def get_berlin_weather():
     daily = data.get("daily", {})
 
     temp = current.get("temperature_2m")
+    feels = current.get("apparent_temperature")
     code = current.get("weather_code")
     updated = current.get("time")
 
@@ -153,6 +160,7 @@ def get_berlin_weather():
     return {
         "error": None,
         "current_temp": temp,
+        "feels_temp": feels,
         "code": code,
         "min_temp": min_list[0] if min_list else None,
         "max_temp": max_list[0] if max_list else None,
@@ -198,6 +206,15 @@ def draw_weather_icon(img, draw, x, y, size, code, inky):
                 icon_rgba = Image.open(BytesIO(png_data)).convert("RGBA")
                 alpha = icon_rgba.split()[3]
                 icon_rgb = icon_rgba.convert("RGB")
+                # Map light blue tones to the display blue for cleaner icon colors.
+                pixels = list(icon_rgb.getdata())
+                mapped = []
+                for r, g, b in pixels:
+                    if b > 150 and r < 130 and g < 170:
+                        mapped.append((0, 0, 255))
+                    else:
+                        mapped.append((r, g, b))
+                icon_rgb.putdata(mapped)
                 icon = icon_rgb.quantize(palette=PALETTE_IMAGE, dither=Image.NONE)
                 ICON_CACHE[cache_key] = (icon, alpha)
                 img.paste(icon, (x, y + (size - icon.height) // 2), alpha)
@@ -308,7 +325,7 @@ def draw_temp_with_degree(draw, x, y, temp_value, font, inky):
     temp_text = f"{temp_value:.0f}"
     draw.text((x, y), temp_text, inky.BLACK, font=font)
     temp_w, temp_h = text_size(draw, temp_text, font)
-    radius = max(5, temp_h // 6)
+    radius = max(5, temp_h // 5)
     circle_x = x + temp_w + 6
     circle_y = y + radius + 4
     draw.ellipse(
@@ -321,7 +338,7 @@ def draw_temp_with_degree(draw, x, y, temp_value, font, inky):
 def temp_with_degree_width(draw, temp_value, font):
     temp_text = f"{temp_value:.0f}"
     temp_w, temp_h = text_size(draw, temp_text, font)
-    radius = max(5, temp_h // 6)
+    radius = max(5, temp_h // 5)
     return temp_w + 6 + (radius * 2)
 
 
@@ -335,6 +352,92 @@ def truncate_text(draw, text, max_width, font):
     while cut and text_size(draw, cut + ellipsis, font)[0] > max_width:
         cut = cut[:-1]
     return cut + ellipsis if cut else ""
+
+
+def draw_dotted_rounded_rect(draw, bbox, radius, dot, gap, color):
+    x0, y0, x1, y1 = bbox
+    step = dot + gap
+    # Top and bottom edges
+    x = x0 + radius
+    while x <= x1 - radius:
+        draw.rectangle((x, y0, x + dot, y0 + dot), fill=color)
+        draw.rectangle((x, y1 - dot, x + dot, y1), fill=color)
+        x += step
+    # Left and right edges
+    y = y0 + radius
+    while y <= y1 - radius:
+        draw.rectangle((x0, y, x0 + dot, y + dot), fill=color)
+        draw.rectangle((x1 - dot, y, x1, y + dot), fill=color)
+        y += step
+    # Rounded corners with even dot spacing along the arc
+    if radius > 0:
+        angle_step = (step / radius)
+        for corner_x, corner_y, start_deg in [
+            (x0 + radius, y0 + radius, 180),
+            (x1 - radius, y0 + radius, 270),
+            (x1 - radius, y1 - radius, 0),
+            (x0 + radius, y1 - radius, 90),
+        ]:
+            start_rad = math.radians(start_deg)
+            end_rad = start_rad + (math.pi / 2)
+            angle = start_rad
+            while angle <= end_rad:
+                cx = int(corner_x + math.cos(angle) * radius)
+                cy = int(corner_y + math.sin(angle) * radius)
+                draw.rectangle((cx, cy, cx + dot, cy + dot), fill=color)
+                angle += angle_step
+
+
+def load_photo_for_box(box_size):
+    if not PHOTO_DIR.exists():
+        return None
+    candidates = []
+    for ext in ("*.png", "*.jpg", "*.jpeg", "*.bmp"):
+        candidates.extend(PHOTO_DIR.glob(ext))
+    candidates = [p for p in candidates if not p.name.startswith("._")]
+    if not candidates:
+        return None
+    path = sorted(candidates)[0]
+    img = Image.open(path)
+    if ImageCms and "icc_profile" in img.info:
+        try:
+            srgb = ImageCms.createProfile("sRGB")
+            src = ImageCms.ImageCmsProfile(BytesIO(img.info["icc_profile"]))
+            img = ImageCms.profileToProfile(img, src, srgb, outputMode="RGB")
+        except Exception:
+            img = img.convert("RGB")
+    else:
+        img = img.convert("RGB")
+    target_w, target_h = box_size
+    img_w, img_h = img.size
+    if img_w == 0 or img_h == 0:
+        return None
+    scale = max(target_w / img_w, target_h / img_h)
+    new_w = int(img_w * scale)
+    new_h = int(img_h * scale)
+    img = img.resize((new_w, new_h), Image.LANCZOS)
+    left = (new_w - target_w) // 2
+    top = (new_h - target_h) // 2
+    return img.crop((left, top, left + target_w, top + target_h))
+
+
+def apply_rounded_mask(img, radius):
+    if radius <= 0:
+        return img
+    w, h = img.size
+    mask = Image.new("L", (w, h), 0)
+    mask_draw = ImageDraw.Draw(mask)
+    mask_draw.rounded_rectangle((0, 0, w, h), radius=radius, fill=255)
+    rounded = Image.new("RGBA", (w, h))
+    rounded.paste(img.convert("RGBA"), (0, 0), mask)
+    return rounded
+
+
+def prepare_photo_for_paste(photo, radius):
+    rounded = apply_rounded_mask(photo, radius)
+    bg = Image.new("RGB", rounded.size, "white")
+    bg.paste(rounded, (0, 0), rounded)
+    return bg.quantize(palette=PALETTE_IMAGE, dither=Image.NONE)
 
 
 def draw_tram_table(draw, x, y, width, title, rows, fonts, inky, title_color, line_bg, line_text_color):
@@ -401,7 +504,7 @@ def todays_hourly_temps(hourly_pairs):
     return result
 
 
-def draw_temp_graph(draw, x, y, width, height, hourly, fonts, inky, label_space=14):
+def draw_temp_graph(draw, x, y, width, height, hourly, fonts, inky):
     if not hourly:
         draw.text((x, y), "Temp graph unavailable", inky.BLACK, font=fonts[3])
         return
@@ -416,6 +519,7 @@ def draw_temp_graph(draw, x, y, width, height, hourly, fonts, inky, label_space=
     top = y
     bottom = y + height
     draw.rectangle((left, top, right, bottom), outline=inky.BLACK)
+    draw.line((left + 1, bottom - 1, right - 1, bottom - 1), fill=inky.BLACK)
 
     def scale_x(idx):
         return left + int(idx * (width - 2) / max(1, len(hourly) - 1)) + 1
@@ -428,18 +532,24 @@ def draw_temp_graph(draw, x, y, width, height, hourly, fonts, inky, label_space=
         points.append((scale_x(idx), scale_y(temp)))
     if len(points) >= 2:
         draw.line(points, fill=inky.RED, width=2)
-    for px, py in points[::3]:
+    for px, py in points[::2]:
         draw.ellipse((px - 1, py - 1, px + 1, py + 1), fill=inky.BLACK, outline=inky.BLACK)
 
     min_text = f"{t_min:.0f}"
     max_text = f"{t_max:.0f}"
-    draw.text((left + 4, bottom - 18), min_text, inky.BLACK, font=fonts[3])
+    min_w, _ = text_size(draw, min_text, fonts[3])
     max_w, _ = text_size(draw, max_text, fonts[3])
-    draw.text((right - 4 - max_w, top + 2), max_text, inky.BLACK, font=fonts[3])
+    draw.text((left - 4 - min_w, bottom - 14), min_text, inky.BLACK, font=fonts[3])
+    draw.text((left - 4 - max_w, top + 2), max_text, inky.BLACK, font=fonts[3])
 
     hour_index = {}
     for idx, (hour, _) in enumerate(hourly):
         hour_index.setdefault(hour, idx)
+    now_hour = datetime.now().hour
+    if now_hour in hour_index:
+        hx = scale_x(hour_index[now_hour])
+        draw.line((hx, top + 1, hx, bottom - 1), fill=inky.BLUE, width=1)
+
     for hour in (0, 6, 12, 18, 23):
         if hour not in hour_index:
             continue
@@ -510,7 +620,7 @@ try:
     font_title = ImageFont.truetype("DejaVuSans.ttf", 28)
     font_sub = ImageFont.truetype("DejaVuSans.ttf", 20)
     font_body = ImageFont.truetype("DejaVuSans.ttf", 17)
-    font_temp = ImageFont.truetype("DejaVuSans.ttf", 46)
+    font_temp = ImageFont.truetype("DejaVuSans.ttf", 56)
     font_meta = ImageFont.truetype("DejaVuSans.ttf", 16)
 except OSError:
     font_title = ImageFont.load_default()
@@ -524,14 +634,12 @@ draw.rectangle((0, 0, w - 1, h - 1), inky.WHITE)
 
 x0, y0 = M_LEFT, M_TOP
 x1, y1 = w - 1 - M_RIGHT, h - 1 - M_BOTTOM
-draw.rectangle((x0, y0, x1, y1), outline=inky.BLACK, fill=inky.WHITE)
 
 gutter = 12
 col_w = (x1 - x0 - gutter) // 2
 left_col = (x0, y0, x0 + col_w, y1)
 right_col = (x0 + col_w + gutter, y0, x1, y1)
-divider_x = x0 + col_w + (gutter // 2)
-draw.line((divider_x, y0, divider_x, y1), fill=inky.BLACK)
+draw_dotted_rounded_rect(draw, left_col, radius=10, dot=1, gap=4, color=inky.BLACK)
 
 left_x = left_col[0] + 14
 right_x = right_col[0] + 14
@@ -602,87 +710,75 @@ for stop_query in BUS_REQUESTS:
         inky.WHITE,
     )
 
-# Right column: weather
-icon_size = 192
-icon_y = top_y
-draw_weather_icon(img, draw, right_x, icon_y, icon_size, weather.get("code"), inky)
+# Right column: weather + photo sections
+right_inner = right_col
+right_w = right_inner[2] - right_inner[0]
+right_h = right_inner[3] - right_inner[1]
+section_gap = 8
+available_h = right_h - section_gap
+weather_h = available_h // 2
+photo_h = available_h - weather_h
 
-temp_x = right_x + icon_size + 14
+weather_box = (right_inner[0], right_inner[1], right_inner[2], right_inner[1] + weather_h)
+photo_box = (right_inner[0], weather_box[3] + section_gap, right_inner[2], weather_box[3] + section_gap + photo_h)
+
+draw_dotted_rounded_rect(draw, weather_box, radius=8, dot=1, gap=4, color=inky.BLACK)
+draw_dotted_rounded_rect(draw, photo_box, radius=8, dot=1, gap=4, color=inky.BLACK)
+
+pad = 8
+icon_size = min(150, weather_h - (pad * 2) - 8)
+icon_x = weather_box[0] + pad - 5
+icon_y = weather_box[1] + pad - 10
+draw_weather_icon(img, draw, icon_x, icon_y, icon_size, weather.get("code"), inky)
+
+temp_x = icon_x + icon_size + 16
 current_temp = weather.get("current_temp")
 if current_temp is not None:
     temp_text = f"{current_temp:.0f}"
     temp_w, temp_h = text_size(draw, temp_text, font_temp)
-    temp_y = icon_y + (icon_size - temp_h) // 2
+    temp_y = icon_y + 20
     draw_temp_with_degree(draw, temp_x, temp_y, current_temp, font_temp, inky)
+    label = weather_label(weather.get("code")) if weather.get("code") is not None else "Unknown"
+    label_y = temp_y + temp_h + 10
+    draw.text((temp_x, label_y), label, inky.BLACK, font=font_sub)
+    feels_temp = weather.get("feels_temp")
+    if feels_temp is not None:
+        feels_text = f"Feels {feels_temp:.0f}"
+        draw.text((temp_x, label_y + 24), feels_text, inky.BLACK, font=font_sub)
 else:
-    temp_y = icon_y + (icon_size - 20) // 2
+    temp_y = icon_y + 10
     draw.text((temp_x, temp_y), "No data", inky.BLACK, font=font_sub)
-
-label = weather_label(weather.get("code")) if weather.get("code") is not None else "Unknown"
-label_y = icon_y + icon_size + 10
-label_w, _ = text_size(draw, label, font_sub)
-label_x = right_x + ((right_col[2] - right_x - 14) - label_w) // 2
-draw.text((label_x, label_y), label, inky.BLUE, font=font_sub)
 
 min_temp = weather.get("min_temp")
 max_temp = weather.get("max_temp")
-minmax_y = label_y + 28
+range_y = label_y + 48
 if min_temp is not None and max_temp is not None:
-    min_label = "Min"
-    max_label = "Max"
-    min_label_w, _ = text_size(draw, min_label, font_sub)
-    max_label_w, _ = text_size(draw, max_label, font_sub)
-    min_temp_w = temp_with_degree_width(draw, min_temp, font_sub)
-    max_temp_w = temp_with_degree_width(draw, max_temp, font_sub)
-    gap = 12
-
-    rain_chance = weather.get("rain_chance")
-    rain_label = f"{rain_chance:.0f}%" if rain_chance is not None else "--"
-    rain_label_w, _ = text_size(draw, rain_label, font_sub)
-    rain_icon_w = 10
-    rain_block_w = rain_icon_w + 6 + rain_label_w
-
-    total_w = (
-        min_label_w + 6 + min_temp_w +
-        gap +
-        max_label_w + 6 + max_temp_w +
-        gap +
-        rain_block_w
-    )
-    start_x = right_x + ((right_col[2] - right_x - 14) - total_w) // 2
-
-    x = start_x
-    draw.text((x, minmax_y), min_label, inky.BLACK, font=font_sub)
-    x += min_label_w + 6
-    draw_temp_with_degree(draw, x, minmax_y - 2, min_temp, font_sub, inky)
-    x += min_temp_w + gap
-    draw.text((x, minmax_y), max_label, inky.BLACK, font=font_sub)
-    x += max_label_w + 6
-    draw_temp_with_degree(draw, x, minmax_y - 2, max_temp, font_sub, inky)
-    x += max_temp_w + gap
-
-    icon_y = minmax_y + 8
-    draw.line((x + 1, icon_y, x + 4, icon_y + 6), fill=inky.BLUE, width=2)
-    draw.line((x + 6, icon_y, x + 9, icon_y + 6), fill=inky.BLUE, width=2)
-    draw.ellipse((x + 2, icon_y + 5, x + 5, icon_y + 8), fill=inky.BLUE, outline=inky.BLUE)
-    x += rain_icon_w + 6
-    draw.text((x, minmax_y), rain_label, inky.BLACK, font=font_sub)
+    range_text = f"{min_temp:.0f} - {max_temp:.0f}"
 else:
-    draw.text((right_x, minmax_y), "Min/Max unavailable", inky.BLACK, font=font_sub)
+    range_text = "-- - --"
+draw.text((temp_x, range_y), range_text, inky.BLACK, font=font_sub)
+
+rain_chance = weather.get("rain_chance")
+rain_label = f"{rain_chance:.0f}%" if rain_chance is not None else "--"
+rain_y = range_y + 24
+draw.line((temp_x, rain_y + 4, temp_x + 4, rain_y + 12), fill=inky.BLACK, width=2)
+draw.line((temp_x + 8, rain_y + 4, temp_x + 12, rain_y + 12), fill=inky.BLACK, width=2)
+draw.ellipse((temp_x + 4, rain_y + 10, temp_x + 8, rain_y + 14), fill=inky.BLACK, outline=inky.BLACK)
+draw.text((temp_x + 18, rain_y), rain_label, inky.BLACK, font=font_sub)
 
 updated = format_updated(weather.get("updated")) or now
 updated_text = f"Updated {updated}"
-text_w, text_h = text_size(draw, updated_text, font_meta)
-meta_x = right_col[2] - 14 - text_w
-meta_y = right_col[3] - 14 - text_h
-
-graph_y = minmax_y + 32
-graph_height = max(40, meta_y - graph_y - 24)
-graph_width = right_col[2] - right_x - 14
-hourly = todays_hourly_temps(weather.get("hourly", []))
-draw_temp_graph(draw, right_x, graph_y, graph_width, graph_height, hourly, (font_title, font_sub, font_body, font_meta), inky)
-
+text_w, text_h = text_size(draw, updated_text, font=font_meta)
+meta_x = weather_box[2] - 6 - text_w
+meta_y = weather_box[3] - 6 - text_h
 draw.text((meta_x, meta_y), updated_text, inky.BLACK, font=font_meta)
+
+photo_size = (photo_box[2] - photo_box[0] - (pad * 2), photo_box[3] - photo_box[1] - (pad * 2))
+photo = load_photo_for_box(photo_size)
+if photo:
+    radius = max(2, pad - 2)
+    prepared = prepare_photo_for_paste(photo, radius=radius)
+    img.paste(prepared, (photo_box[0] + pad, photo_box[1] + pad))
 
 inky.set_image(img)
 inky.show()
