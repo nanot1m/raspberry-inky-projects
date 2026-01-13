@@ -37,17 +37,23 @@ BUS_REQUESTS = [
     ("Werneuchener Str./Große-Leege-Str."),
 ]
 
-ICON_DIR = Path(__file__).resolve().parent / "assets" / "weather"
+ICON_DIR = Path(__file__).resolve().parent / "assets" / "weather-icons"
 PHOTO_DIR = Path(__file__).resolve().parent / "photos"
 ICON_FILES = {
-    "clear": "clear-day.svg",
-    "partly_cloudy": "cloudy-2-day.svg",
-    "cloudy": "cloudy.svg",
-    "fog": "fog.svg",
-    "drizzle": "rainy-1.svg",
-    "rain": "rainy-2.svg",
-    "snow": "snowy-1.svg",
-    "thunder": "thunderstorms.svg",
+    "clear": "wi-day-sunny.svg",
+    "partly_cloudy": "wi-day-cloudy.svg",
+    "cloudy": "wi-cloudy.svg",
+    "fog": "wi-fog.svg",
+    "drizzle": "wi-sprinkle.svg",
+    "rain": "wi-rain.svg",
+    "rain_heavy": "wi-rain-wind.svg",
+    "freezing_drizzle": "wi-sleet.svg",
+    "freezing_rain": "wi-rain-mix.svg",
+    "snow": "wi-snow.svg",
+    "snow_heavy": "wi-snow-wind.svg",
+    "snow_showers": "wi-snow.svg",
+    "hail": "wi-hail.svg",
+    "thunder": "wi-thunderstorm.svg",
 }
 
 try:
@@ -179,15 +185,45 @@ def weather_icon_key(code):
         return "cloudy"
     if code in (45, 48):
         return "fog"
-    if code in (51, 53, 55, 56, 57):
+    if code in (51, 53, 55):
         return "drizzle"
-    if code in (61, 63, 65, 66, 67, 80, 81, 82):
+    if code in (56, 57):
+        return "freezing_drizzle"
+    if code in (61, 63, 80, 81):
         return "rain"
-    if code in (71, 73, 75, 77, 85, 86):
+    if code in (65, 82):
+        return "rain_heavy"
+    if code in (66, 67):
+        return "freezing_rain"
+    if code in (71, 73):
         return "snow"
-    if code in (95, 96, 99):
+    if code in (75, 77):
+        return "snow_heavy"
+    if code in (85, 86):
+        return "snow_showers"
+    if code in (96, 99):
+        return "hail"
+    if code == 95:
         return "thunder"
     return None
+
+
+def load_svg_icon(icon_name, size):
+    cache_key = (icon_name, size)
+    if cache_key in ICON_CACHE:
+        return ICON_CACHE[cache_key]
+    if not SVG_AVAILABLE:
+        return None
+    icon_path = ICON_DIR / icon_name
+    if not icon_path.exists():
+        return None
+    png_data = svg2png(url=str(icon_path), output_width=size)
+    icon_rgba = Image.open(BytesIO(png_data)).convert("RGBA")
+    alpha = icon_rgba.split()[3]
+    icon_rgb = icon_rgba.convert("RGB")
+    icon = icon_rgb.quantize(palette=PALETTE_IMAGE, dither=Image.NONE)
+    ICON_CACHE[cache_key] = (icon, alpha)
+    return ICON_CACHE[cache_key]
 
 
 def draw_weather_icon(img, draw, x, y, size, code, inky):
@@ -195,28 +231,9 @@ def draw_weather_icon(img, draw, x, y, size, code, inky):
     if key:
         icon_name = ICON_FILES.get(key)
         if icon_name:
-            icon_path = ICON_DIR / icon_name
-            cache_key = (str(icon_path), size)
-            if cache_key in ICON_CACHE:
-                icon, alpha = ICON_CACHE[cache_key]
-                img.paste(icon, (x, y + (size - icon.height) // 2), alpha)
-                return
-            if SVG_AVAILABLE and icon_path.exists():
-                png_data = svg2png(url=str(icon_path), output_width=size)
-                icon_rgba = Image.open(BytesIO(png_data)).convert("RGBA")
-                alpha = icon_rgba.split()[3]
-                icon_rgb = icon_rgba.convert("RGB")
-                # Map light blue tones to the display blue for cleaner icon colors.
-                pixels = list(icon_rgb.getdata())
-                mapped = []
-                for r, g, b in pixels:
-                    if b > 150 and r < 130 and g < 170:
-                        mapped.append((0, 0, 255))
-                    else:
-                        mapped.append((r, g, b))
-                icon_rgb.putdata(mapped)
-                icon = icon_rgb.quantize(palette=PALETTE_IMAGE, dither=Image.NONE)
-                ICON_CACHE[cache_key] = (icon, alpha)
+            cached = load_svg_icon(icon_name, size)
+            if cached:
+                icon, alpha = cached
                 img.paste(icon, (x, y + (size - icon.height) // 2), alpha)
                 return
 
@@ -761,10 +778,18 @@ draw.text((temp_x, range_y), range_text, inky.BLACK, font=font_sub)
 rain_chance = weather.get("rain_chance")
 rain_label = f"{rain_chance:.0f}%" if rain_chance is not None else "--"
 rain_y = range_y + 24
-draw.line((temp_x, rain_y + 4, temp_x + 4, rain_y + 12), fill=inky.BLACK, width=2)
-draw.line((temp_x + 8, rain_y + 4, temp_x + 12, rain_y + 12), fill=inky.BLACK, width=2)
-draw.ellipse((temp_x + 4, rain_y + 10, temp_x + 8, rain_y + 14), fill=inky.BLACK, outline=inky.BLACK)
-draw.text((temp_x + 18, rain_y), rain_label, inky.BLACK, font=font_sub)
+rain_icon = load_svg_icon("wi-raindrop.svg", 18)
+if rain_icon:
+    icon_img, icon_alpha = rain_icon
+    img.paste(icon_img, (temp_x, rain_y), icon_alpha)
+    text_x = temp_x + 22
+else:
+    drop_y = rain_y + 4
+    draw.line((temp_x, drop_y, temp_x + 4, drop_y + 8), fill=inky.BLACK, width=2)
+    draw.line((temp_x + 8, drop_y, temp_x + 12, drop_y + 8), fill=inky.BLACK, width=2)
+    draw.ellipse((temp_x + 4, drop_y + 7, temp_x + 8, drop_y + 11), fill=inky.BLACK, outline=inky.BLACK)
+    text_x = temp_x + 18
+draw.text((text_x, rain_y), rain_label, inky.BLACK, font=font_sub)
 
 updated = format_updated(weather.get("updated")) or now
 updated_text = f"Updated {updated}"
