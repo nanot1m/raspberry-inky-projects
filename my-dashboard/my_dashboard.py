@@ -1,5 +1,6 @@
 from datetime import datetime
 import math
+import os
 import time
 from io import BytesIO
 import json
@@ -85,11 +86,16 @@ def fetch_json(url, timeout=10, retries=3, delay=10):
     for attempt in range(retries):
         try:
             with urlopen(req, timeout=timeout) as response:
-                return json.load(response)
+                data = json.load(response)
+                if data in (None, {}, []):
+                    raise ValueError("Empty response")
+                return data
         except Exception:
             if attempt == retries - 1:
                 return None
             time.sleep(delay)
+
+
 
 
 def weather_label(code):
@@ -376,19 +382,19 @@ def draw_dotted_rounded_rect(draw, bbox, radius, dot, gap, color):
     step = dot + gap
     # Top and bottom edges
     x = x0 + radius
-    while x <= x1 - radius:
+    while x < x1 - radius:
         draw.rectangle((x, y0, x + dot, y0 + dot), fill=color)
         draw.rectangle((x, y1 - dot, x + dot, y1), fill=color)
         x += step
     # Left and right edges
     y = y0 + radius
-    while y <= y1 - radius:
+    while y < y1 - radius:
         draw.rectangle((x0, y, x0 + dot, y + dot), fill=color)
         draw.rectangle((x1 - dot, y, x1, y + dot), fill=color)
         y += step
     # Rounded corners with even dot spacing along the arc
     if radius > 0:
-        angle_step = (step / radius)
+        angle_step = step / radius
         for corner_x, corner_y, start_deg in [
             (x0 + radius, y0 + radius, 180),
             (x1 - radius, y0 + radius, 270),
@@ -398,7 +404,7 @@ def draw_dotted_rounded_rect(draw, bbox, radius, dot, gap, color):
             start_rad = math.radians(start_deg)
             end_rad = start_rad + (math.pi / 2)
             angle = start_rad
-            while angle <= end_rad:
+            while angle < end_rad:
                 cx = int(corner_x + math.cos(angle) * radius)
                 cy = int(corner_y + math.sin(angle) * radius)
                 draw.rectangle((cx, cy, cx + dot, cy + dot), fill=color)
@@ -457,7 +463,7 @@ def prepare_photo_for_paste(photo, radius):
     return bg.quantize(palette=PALETTE_IMAGE, dither=Image.NONE)
 
 
-def draw_tram_table(draw, x, y, width, title, rows, fonts, inky, title_color, line_bg, line_text_color):
+def draw_tram_table(draw, x, y, width, title, rows, fonts, inky, title_color, line_bg, line_text_color, max_rows=5):
     font_title, font_sub, font_body, font_meta = fonts
     title_text = truncate_text(draw, title, width, font=font_body)
     draw.text((x, y), title_text, title_color, font=font_body)
@@ -476,7 +482,7 @@ def draw_tram_table(draw, x, y, width, title, rows, fonts, inky, title_color, li
         draw.text((table_left, y), "No departures", inky.BLACK, font=font_body)
         return y + 28
 
-    for when, line, direction in rows[:5]:
+    for when, line, direction in rows[:max_rows]:
         draw.text((table_left, y), when, inky.BLACK, font=font_body)
         line_x = table_left + col_time
         line_text = truncate_text(draw, line, col_line - 8, font=font_body)
@@ -617,7 +623,7 @@ def get_tram_departures(stop_query, line_filter=None, product_key="tram"):
             lines.append(f"{when} {line} {direction}")
         else:
             lines.append(f"{when} {line}")
-        if len(lines) >= 5:
+        if len(lines) >= 8:
             break
     if not lines:
         label = line_filter or "Tram"
@@ -656,11 +662,12 @@ gutter = 12
 col_w = (x1 - x0 - gutter) // 2
 left_col = (x0, y0, x0 + col_w, y1)
 right_col = (x0 + col_w + gutter, y0, x1, y1)
-draw_dotted_rounded_rect(draw, left_col, radius=10, dot=1, gap=4, color=inky.BLACK)
+draw.rectangle(left_col, outline=inky.BLACK)
 
 left_x = left_col[0] + 14
 right_x = right_col[0] + 14
 top_y = y0 + 14
+
 
 now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -696,35 +703,7 @@ for stop_query in TRAM_REQUESTS:
         inky.RED,
         inky.RED,
         inky.WHITE,
-    )
-
-# Bus table
-for stop_query in BUS_REQUESTS:
-    stop_name, bus_lines = get_tram_departures(stop_query, product_key="bus")
-    rows = []
-    for entry in bus_lines:
-        parts = entry.split(" ", 2)
-        if len(parts) == 3:
-            when, line, direction = parts
-        elif len(parts) == 2:
-            when, line = parts
-            direction = ""
-        else:
-            when, line, direction = "--:--", line_name, ""
-        rows.append((when, line, direction))
-    title = f"{stop_name}"
-    line_y = draw_tram_table(
-        draw,
-        left_x,
-        line_y,
-        table_width,
-        title,
-        rows,
-        (font_title, font_sub, font_body, font_meta),
-        inky,
-        inky.BLUE,
-        inky.BLUE,
-        inky.WHITE,
+        max_rows=8,
     )
 
 # Right column: weather + photo sections
@@ -734,62 +713,67 @@ right_h = right_inner[3] - right_inner[1]
 section_gap = 8
 available_h = right_h - section_gap
 weather_h = available_h // 2
-photo_h = available_h - weather_h
+bus_h = available_h - weather_h
 
 weather_box = (right_inner[0], right_inner[1], right_inner[2], right_inner[1] + weather_h)
-photo_box = (right_inner[0], weather_box[3] + section_gap, right_inner[2], weather_box[3] + section_gap + photo_h)
+bus_box = (right_inner[0], weather_box[3] + section_gap, right_inner[2], weather_box[3] + section_gap + bus_h)
 
-draw_dotted_rounded_rect(draw, weather_box, radius=8, dot=1, gap=4, color=inky.BLACK)
-draw_dotted_rounded_rect(draw, photo_box, radius=8, dot=1, gap=4, color=inky.BLACK)
+draw.rectangle(weather_box, outline=inky.BLACK)
+draw.rectangle(bus_box, outline=inky.BLACK)
 
-pad = 8
-icon_size = min(150, weather_h - (pad * 2) - 8)
-icon_x = weather_box[0] + pad - 5
-icon_y = weather_box[1] + pad - 10
+pad = 12
+wx = weather_box[0] + pad
+wy = weather_box[1] + pad
+w_width = weather_box[2] - weather_box[0] - (pad * 2)
+w_height = weather_box[3] - weather_box[1] - (pad * 2)
+
+# Left side: Weather icon
+icon_size = min(100, w_height - 20)
+icon_x = wx + 10
+icon_y = wy + (w_height - icon_size) // 2
 draw_weather_icon(img, draw, icon_x, icon_y, icon_size, weather.get("code"), inky)
 
-temp_x = icon_x + icon_size + 16
+# Vertical separator line
+separator_x = wx + icon_size + 30
+separator_y0 = wy + 10
+separator_y1 = wy + w_height - 10
+draw.line((separator_x, separator_y0, separator_x, separator_y1), fill=inky.BLACK, width=1)
+
+# Right side: Temperature and info
+info_x = separator_x + 15
 current_temp = weather.get("current_temp")
 if current_temp is not None:
+    # Large temperature
     temp_text = f"{current_temp:.0f}"
     temp_w, temp_h = text_size(draw, temp_text, font_temp)
-    temp_y = icon_y + 20
-    draw_temp_with_degree(draw, temp_x, temp_y, current_temp, font_temp, inky)
+    degree_radius = max(5, temp_h // 5)
+    temp_y = wy + 10
+    draw_temp_with_degree(draw, info_x, temp_y, current_temp, font_temp, inky)
+
+    # Weather condition label
     label = weather_label(weather.get("code")) if weather.get("code") is not None else "Unknown"
-    label_y = temp_y + temp_h + 10
-    draw.text((temp_x, label_y), label, inky.BLACK, font=font_sub)
-    feels_temp = weather.get("feels_temp")
-    if feels_temp is not None:
-        feels_text = f"Feels {feels_temp:.0f}"
-        draw.text((temp_x, label_y + 24), feels_text, inky.BLACK, font=font_sub)
-else:
-    temp_y = icon_y + 10
-    draw.text((temp_x, temp_y), "No data", inky.BLACK, font=font_sub)
+    label_y = temp_y + temp_h + 16
+    draw.text((info_x, label_y), label, inky.BLACK, font=font_sub)
 
-min_temp = weather.get("min_temp")
-max_temp = weather.get("max_temp")
-range_y = label_y + 48
-if min_temp is not None and max_temp is not None:
-    range_text = f"{min_temp:.0f} - {max_temp:.0f}"
-else:
-    range_text = "-- - --"
-draw.text((temp_x, range_y), range_text, inky.BLACK, font=font_sub)
+    # Min-max temperature range
+    min_temp = weather.get("min_temp")
+    max_temp = weather.get("max_temp")
+    if min_temp is not None and max_temp is not None:
+        range_text = f"{min_temp:.0f}° - {max_temp:.0f}°"
+    else:
+        range_text = "-- - --"
+    range_y = label_y + 32
+    draw.text((info_x, range_y), range_text, inky.BLACK, font=font_body)
 
-rain_chance = weather.get("rain_chance")
-rain_label = f"{rain_chance:.0f}%" if rain_chance is not None else "--"
-rain_y = range_y + 24
-rain_icon = load_svg_icon("wi-raindrop.svg", 18)
-if rain_icon:
-    icon_img, icon_alpha = rain_icon
-    img.paste(icon_img, (temp_x, rain_y), icon_alpha)
-    text_x = temp_x + 22
+    # Rain chance or UV info
+    rain_chance = weather.get("rain_chance")
+    if rain_chance is not None:
+        rain_text = f"Rain {rain_chance:.0f}%"
+        rain_y = range_y + 32
+        draw.text((info_x, rain_y), rain_text, inky.BLACK, font=font_meta)
 else:
-    drop_y = rain_y + 4
-    draw.line((temp_x, drop_y, temp_x + 4, drop_y + 8), fill=inky.BLACK, width=2)
-    draw.line((temp_x + 8, drop_y, temp_x + 12, drop_y + 8), fill=inky.BLACK, width=2)
-    draw.ellipse((temp_x + 4, drop_y + 7, temp_x + 8, drop_y + 11), fill=inky.BLACK, outline=inky.BLACK)
-    text_x = temp_x + 18
-draw.text((text_x, rain_y), rain_label, inky.BLACK, font=font_sub)
+    temp_y = wy + w_height // 2
+    draw.text((info_x, temp_y), "No data", inky.BLACK, font=font_sub)
 
 updated = format_updated(weather.get("updated")) or now
 updated_text = f"Updated {updated}"
@@ -798,12 +782,38 @@ meta_x = weather_box[2] - 6 - text_w
 meta_y = weather_box[3] - 6 - text_h
 draw.text((meta_x, meta_y), updated_text, inky.BLACK, font=font_meta)
 
-photo_size = (photo_box[2] - photo_box[0] - (pad * 2), photo_box[3] - photo_box[1] - (pad * 2))
-photo = load_photo_for_box(photo_size)
-if photo:
-    radius = max(2, pad - 2)
-    prepared = prepare_photo_for_paste(photo, radius=radius)
-    img.paste(prepared, (photo_box[0] + pad, photo_box[1] + pad))
+# Right lower: bus table
+bus_pad = 12
+bus_x = bus_box[0] + bus_pad
+bus_y = bus_box[1] + bus_pad
+bus_w = bus_box[2] - bus_box[0] - (bus_pad * 2)
+bus_rows = []
+if BUS_REQUESTS:
+    stop_name, bus_lines = get_tram_departures(BUS_REQUESTS[0], product_key="bus")
+    for entry in bus_lines:
+        parts = entry.split(" ", 2)
+        if len(parts) == 3:
+            when, line, direction = parts
+        elif len(parts) == 2:
+            when, line = parts
+            direction = ""
+        else:
+            when, line, direction = "--:--", "", ""
+        bus_rows.append((when, line, direction))
+    draw_tram_table(
+        draw,
+        bus_x,
+        bus_y,
+        bus_w,
+        stop_name,
+        bus_rows,
+        (font_title, font_sub, font_body, font_meta),
+        inky,
+        inky.BLUE,
+        inky.BLUE,
+        inky.WHITE,
+        max_rows=8,
+    )
 
 inky.set_image(img)
 inky.show()
