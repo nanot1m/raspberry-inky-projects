@@ -6,9 +6,9 @@
     "gutter": 8,
     "border": {
       "width": 1,
-      "radius": 4,
+      "radius": 8,
       "style": "solid",
-      "color": "black"
+      "color": "orange"
     },
     "tiles": [
       {

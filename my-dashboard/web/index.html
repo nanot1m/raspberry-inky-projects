@@ -9,19 +9,25 @@
   <body>
     <div class="card">
       <h1>My Dashboard</h1>
+      <div class="panel panel-actions">
+        <div class="buttons">
+          <button id="saveConfig">Save Config</button>
+          <button id="preview">Preview</button>
+          <button id="apply">Upload to Device</button>
+          <button id="resetConfig" class="reset hidden">Reset</button>
+        </div>
+        <div class="status" id="status"></div>
+      </div>
       <div class="row">
-        <div class="panel">
+        <div class="panel panel-preview">
           <h3>Preview</h3>
           <div class="preview-wrap">
             <div id="safeViewport" class="safe-viewport">
-              <img id="dashboard" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="Dashboard" />
-              <div id="previewTiles" class="preview-tiles"></div>
-            <div id="overlay" class="overlay"></div>
-            <div id="previewLoading" class="preview-loading">Loading preview…</div>
+              <canvas id="previewCanvas" class="preview-canvas" width="685" height="435"></canvas>
             </div>
           </div>
         </div>
-        <div class="panel">
+        <div class="panel panel-layout">
           <h3>Layout</h3>
           <div class="preset-bar">
             <button class="preset-btn" data-preset="full" title="Fullscreen" aria-label="Fullscreen">
@@ -83,13 +89,6 @@
             <input id="updateInterval" type="number" min="1" step="1" placeholder="15" />
           </div>
           <div id="tiles"></div>
-          <div class="buttons">
-            <button id="saveConfig">Save Config</button>
-            <button id="preview">Preview</button>
-            <button id="apply">Upload to Device</button>
-            <button id="resetConfig" class="reset hidden">Reset</button>
-          </div>
-          <div class="status" id="status"></div>
         </div>
       </div>
     </div>

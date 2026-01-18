@@ -1,38 +1,53 @@
-const img = document.getElementById("dashboard");
 const statusEl = document.getElementById("status");
 const tilesEl = document.getElementById("tiles");
-const overlayEl = document.getElementById("overlay");
 const safeViewportEl = document.getElementById("safeViewport");
 const resetBtn = document.getElementById("resetConfig");
 const scheduleInput = document.getElementById("updateInterval");
-const previewTilesEl = document.getElementById("previewTiles");
-const previewLoadingEl = document.getElementById("previewLoading");
 const borderWidthInput = document.getElementById("borderWidth");
 const borderRadiusInput = document.getElementById("borderRadius");
 const borderStyleSelect = document.getElementById("borderStyle");
 const borderColorSelect = document.getElementById("borderColor");
-let activeTileIndex = null;
+const canvas = document.getElementById("previewCanvas");
+const ctx = canvas.getContext("2d", { alpha: false });
+
 const SAFE = { left: 60, top: 35, right: 55, bottom: 10 };
+const DEFAULT_W = 800;
+const DEFAULT_H = 480;
+const ANIM_DURATION = 160;
+
+let activeTileIndex = null;
 let viewportSize = { width: 0, height: 0, scale: 1, baseWidth: 0, baseHeight: 0 };
 let currentTiles = [];
 let currentPluginMeta = null;
+let previewImage = null;
+let previewReady = false;
 let dragSourceIndex = null;
 let dragTargetIndex = null;
 let isDragging = false;
-let dragTargetRect = null;
-let lastOverlayRects = new Map();
-let rectElements = new Map();
+let dragPointerId = null;
+let dragStart = null;
+let dragOffset = { x: 0, y: 0 };
 let hoverIndex = null;
 let isPreviewHover = false;
 let presetPreview = null;
-let overlayMode = "current";
 let presetPreviewTimer = null;
-let overlayRects = new Map();
-let dragPointerId = null;
-let dragStart = null;
-let dragPreviewTile = null;
-let previewTileElements = new Map();
-let currentPreviewSrc = "/generated/dashboard.png";
+let tileAnimations = new Map();
+
+const initialSafeWidth = DEFAULT_W - SAFE.left - SAFE.right;
+const initialSafeHeight = DEFAULT_H - SAFE.top - SAFE.bottom;
+viewportSize = {
+  width: initialSafeWidth,
+  height: initialSafeHeight,
+  scale: 1,
+  baseWidth: initialSafeWidth,
+  baseHeight: initialSafeHeight,
+};
+canvas.width = initialSafeWidth;
+canvas.height = initialSafeHeight;
+canvas.style.width = `${initialSafeWidth}px`;
+canvas.style.height = `${initialSafeHeight}px`;
+safeViewportEl.style.width = `${initialSafeWidth}px`;
+safeViewportEl.style.height = `${initialSafeHeight}px`;
 
 const setStatus = (msg, ok = true) => {
   statusEl.textContent = msg;
@@ -50,41 +65,16 @@ const fetchJson = async (url, options = {}) => {
 
 const appState = window.__dashboardApp || { previewRequest: null, initialized: false };
 window.__dashboardApp = appState;
-let previewRequest = appState.previewRequest;
-const cancelPreviewTimer = () => {
-  if (previewTimer) {
-    clearTimeout(previewTimer);
-    previewTimer = null;
-  }
-};
-const waitForImageLoad = (src) => new Promise((resolve, reject) => {
-  const onLoad = () => {
-    cleanup();
-    resolve();
-  };
-  const onError = () => {
-    cleanup();
-    reject(new Error("Failed to load preview image"));
-  };
-  const cleanup = () => {
-    img.removeEventListener("load", onLoad);
-    img.removeEventListener("error", onError);
-  };
-  img.addEventListener("load", onLoad);
-  img.addEventListener("error", onError);
-  img.src = src;
+const loadPreviewImage = (src) => new Promise((resolve, reject) => {
+  const image = new Image();
+  image.onload = () => resolve(image);
+  image.onerror = () => reject(new Error("Failed to load preview image"));
+  image.src = src;
 });
-
-const setPreviewLoading = (loading) => {
-  if (!previewLoadingEl) return;
-  previewLoadingEl.classList.toggle("visible", loading);
-};
 
 const requestPreview = async (config, successMessage = "Preview updated") => {
   if (appState.previewRequest) return appState.previewRequest;
-  cancelPreviewTimer();
   setStatus("Generating preview...");
-  setPreviewLoading(true);
   appState.previewRequest = (async () => {
     try {
       const res = await fetchJson("/api/preview", {
@@ -92,32 +82,20 @@ const requestPreview = async (config, successMessage = "Preview updated") => {
         body: JSON.stringify(config),
       });
       const src = res.image_data || `${res.image}?ts=${Date.now()}`;
-      currentPreviewSrc = src;
-      await waitForImageLoad(src);
+      previewImage = await loadPreviewImage(src);
+      previewReady = true;
       updateSafeViewport();
       assignPreviewSlices(currentTiles);
-      renderPreviewTiles(currentTiles);
       setStatus(successMessage);
       return res;
     } catch (err) {
       setStatus(err.message, false);
       throw err;
     } finally {
-      setPreviewLoading(false);
       appState.previewRequest = null;
     }
   })();
   return appState.previewRequest;
-};
-
-let previewTimer = null;
-const schedulePreview = () => {
-  cancelPreviewTimer();
-};
-
-const refreshImage = (path = "/generated/dashboard.png") => {
-  currentPreviewSrc = `${path}?ts=${Date.now()}`;
-  img.src = currentPreviewSrc;
 };
 
 const assignPreviewSlices = (tiles, layoutOverride = null) => {
@@ -129,8 +107,10 @@ const assignPreviewSlices = (tiles, layoutOverride = null) => {
     const rect = rects[idx];
     if (!rect) return;
     tile.preview = {
-      bgX: -(SAFE.left + rect.left),
-      bgY: -(SAFE.top + rect.top),
+      sx: SAFE.left + rect.left,
+      sy: SAFE.top + rect.top,
+      sw: rect.w,
+      sh: rect.h,
     };
   });
 };
@@ -149,6 +129,34 @@ const computeTileRects = (tiles, cols, rows, gutterBase) => {
   });
 };
 
+const getCanvasPoint = (event) => {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return {
+    x: (event.clientX - rect.left) * scaleX,
+    y: (event.clientY - rect.top) * scaleY,
+  };
+};
+
+const findTileIndex = (point) => {
+  const gutter = parseInt(document.getElementById("gutter").value, 10) || 0;
+  const rects = computeTileRects(currentTiles, currentLayout.cols, currentLayout.rows, gutter);
+  for (let i = 0; i < rects.length; i += 1) {
+    const rect = rects[i];
+    if (!rect) continue;
+    if (
+      point.x >= rect.left &&
+      point.x <= rect.left + rect.w &&
+      point.y >= rect.top &&
+      point.y <= rect.top + rect.h
+    ) {
+      return i;
+    }
+  }
+  return null;
+};
+
 const getBorderConfig = () => ({
   width: borderWidthInput.value === "" ? 0 : Number(borderWidthInput.value),
   radius: borderRadiusInput.value === "" ? 0 : Number(borderRadiusInput.value),
@@ -156,95 +164,174 @@ const getBorderConfig = () => ({
   color: borderColorSelect.value,
 });
 
-const renderPreviewTiles = (tiles, layoutOverride = null) => {
-  if (!viewportSize.width || !viewportSize.height) return;
-  if (!img.naturalWidth || !img.naturalHeight) return;
-  const cols = layoutOverride?.cols ?? currentLayout.cols;
-  const rows = layoutOverride?.rows ?? currentLayout.rows;
-  const gutterBase = parseInt(document.getElementById("gutter").value, 10) || 0;
-  const rects = computeTileRects(tiles, cols, rows, gutterBase);
-  const scale = viewportSize.scale;
-  const fullW = img.naturalWidth;
-  const fullH = img.naturalHeight;
-  previewTilesEl.style.width = `${fullW}px`;
-  previewTilesEl.style.height = `${fullH}px`;
-  previewTilesEl.style.transform = `scale(${scale})`;
-  previewTilesEl.style.transformOrigin = "top left";
-  const updateTile = (tileEl, rect, idx) => {
-    const left = rect.left;
-    const top = rect.top;
-    const width = rect.w + 1;
-    const height = rect.h + 1;
-    tileEl.style.left = `${left}px`;
-    tileEl.style.top = `${top}px`;
-    tileEl.style.width = `${width}px`;
-    tileEl.style.height = `${height}px`;
-    const preview = tiles[idx]?.preview;
-    const bgX = preview?.bgX ?? -(SAFE.left + left);
-    const bgY = preview?.bgY ?? -(SAFE.top + top);
-    tileEl.style.backgroundImage = `url(${currentPreviewSrc})`;
-    tileEl.style.backgroundSize = `${fullW}px ${fullH}px`;
-    tileEl.style.backgroundPosition = `${bgX}px ${bgY}px`;
+const getPreviewBaseSize = () => {
+  const w = previewImage ? previewImage.width : DEFAULT_W;
+  const h = previewImage ? previewImage.height : DEFAULT_H;
+  return {
+    width: w,
+    height: h,
+    safeWidth: w - SAFE.left - SAFE.right,
+    safeHeight: h - SAFE.top - SAFE.bottom,
   };
+};
 
-  if (previewTileElements.size === tiles.length && previewTilesEl.childElementCount === tiles.length) {
-    rects.forEach((rect, idx) => {
-      const tileEl = previewTileElements.get(idx);
-      if (!tileEl) return;
-      updateTile(tileEl, rect, idx);
+const startTileAnimations = (fromRects, toRects, indices) => {
+  const start = performance.now();
+  indices.forEach((idx) => {
+    const from = fromRects[idx];
+    const to = toRects[idx];
+    if (!from || !to) return;
+    tileAnimations.set(idx, {
+      start,
+      duration: ANIM_DURATION,
+      from,
+      to,
     });
-    return;
+  });
+};
+
+const getAnimatedRect = (idx, baseRect, now) => {
+  const anim = tileAnimations.get(idx);
+  if (!anim) return baseRect;
+  const progress = Math.min(1, (now - anim.start) / anim.duration);
+  const lerp = (a, b) => a + (b - a) * progress;
+  const rect = {
+    left: lerp(anim.from.left, anim.to.left),
+    top: lerp(anim.from.top, anim.to.top),
+    w: lerp(anim.from.w, anim.to.w),
+    h: lerp(anim.from.h, anim.to.h),
+  };
+  if (progress >= 1) {
+    tileAnimations.delete(idx);
+  }
+  return rect;
+};
+
+let rafId = null;
+const drawLoop = (time) => {
+  drawCanvas(time);
+  rafId = requestAnimationFrame(drawLoop);
+};
+
+const drawPlaceholderRect = (rect) => {
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(rect.left, rect.top, rect.w, rect.h);
+  ctx.strokeStyle = "rgba(31, 93, 122, 0.25)";
+  ctx.strokeRect(rect.left + 0.5, rect.top + 0.5, rect.w - 1, rect.h - 1);
+};
+
+const drawCanvas = (now) => {
+  if (!canvas.width || !canvas.height) return;
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const gutter = parseInt(document.getElementById("gutter").value, 10) || 0;
+  const rects = computeTileRects(currentTiles, currentLayout.cols, currentLayout.rows, gutter);
+
+  if (previewReady && previewImage) {
+    currentTiles.forEach((tile, idx) => {
+      const baseRect = rects[idx];
+      if (!baseRect) return;
+      let rect = getAnimatedRect(idx, baseRect, now);
+      if (isDragging && idx === dragSourceIndex) {
+        rect = { ...rect, left: rect.left + dragOffset.x, top: rect.top + dragOffset.y };
+      }
+      const preview = tile.preview;
+      if (preview && previewImage) {
+        const srcW = Math.min(previewImage.width - preview.sx, preview.sw + 1);
+        const srcH = Math.min(previewImage.height - preview.sy, preview.sh + 1);
+        const dstW = rect.w + 1;
+        const dstH = rect.h + 1;
+        ctx.drawImage(
+          previewImage,
+          preview.sx,
+          preview.sy,
+          srcW,
+          srcH,
+          rect.left,
+          rect.top,
+          dstW,
+          dstH
+        );
+      } else {
+        drawPlaceholderRect(rect);
+      }
+    });
+  } else {
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#6d675f";
+    ctx.font = "14px \"Space Grotesk\", sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Loading preview…", canvas.width / 2, canvas.height / 2);
   }
 
-  previewTilesEl.innerHTML = "";
-  previewTileElements = new Map();
-  rects.forEach((rect, idx) => {
-    const tile = document.createElement("div");
-    tile.className = "preview-tile";
-    tile.dataset.index = String(previewTileElements.size);
-    updateTile(tile, rect, idx);
-    previewTilesEl.appendChild(tile);
-    previewTileElements.set(Number(tile.dataset.index), tile);
-  });
-};
-
-const updateOverlayVisibility = () => {
-  const show = isPreviewHover || isDragging || activeTileIndex !== null || Boolean(presetPreview);
-  overlayEl.classList.toggle("visible", show);
-  overlayEl.classList.toggle("mode-hover", isPreviewHover && overlayMode === "current");
-  overlayEl.classList.toggle("mode-active-only", !isPreviewHover && activeTileIndex !== null && overlayMode === "current");
-  overlayEl.classList.toggle("mode-preset", overlayMode === "preset");
-};
-
-const applyOverlayState = () => {
-  rectElements.forEach((rect, idx) => {
-    if (overlayMode !== "current") {
-      rect.classList.remove("active", "hovered", "dragging", "drop-target");
-      return;
+  const drawOutline = (rect, opts = {}) => {
+    const {
+      stroke = "rgba(31, 93, 122, 0.8)",
+      width = 2,
+      dash = null,
+      fill = null,
+    } = opts;
+    ctx.save();
+    if (fill) {
+      ctx.fillStyle = fill;
+      ctx.fillRect(rect.left, rect.top, rect.w, rect.h);
     }
-    rect.classList.toggle("active", activeTileIndex === idx);
-    rect.classList.toggle("hovered", hoverIndex === idx);
-    rect.classList.toggle("dragging", dragSourceIndex === idx);
-    rect.classList.toggle("drop-target", dragTargetIndex === idx && dragSourceIndex !== idx);
-  });
-  updateOverlayVisibility();
-};
+    ctx.lineWidth = width;
+    ctx.strokeStyle = stroke;
+    if (dash) ctx.setLineDash(dash);
+    ctx.strokeRect(rect.left + 1, rect.top + 1, rect.w - 2, rect.h - 2);
+    ctx.restore();
+  };
 
-const reorderTiles = (fromIndex, toIndex) => {
-  if (fromIndex === toIndex) return;
-  const next = [...currentTiles];
-  const [moved] = next.splice(fromIndex, 1);
-  if (!moved) return;
-  next.splice(toIndex, 0, moved);
-  currentTiles = next;
-  renderTiles(currentTiles, currentPluginMeta);
-  drawOverlay(currentTiles);
-  renderPreviewTiles(currentTiles);
-  updateResetState();
+  if (presetPreview) {
+    const presetRects = computeTileRects(
+      presetPreview.tiles,
+      presetPreview.layout.cols,
+      presetPreview.layout.rows,
+      gutter
+    );
+    presetRects.forEach((rect) => {
+      drawOutline(rect, {
+        stroke: "rgba(255, 255, 255, 0.95)",
+        width: 3,
+        fill: "rgba(0, 0, 0, 0.25)",
+      });
+    });
+  }
+
+  if (isDragging && dragTargetIndex !== null && rects[dragTargetIndex]) {
+    drawOutline(rects[dragTargetIndex], {
+      stroke: "rgba(31, 93, 122, 1)",
+      width: 2,
+      dash: [6, 4],
+      fill: "rgba(31, 93, 122, 0.15)",
+    });
+  }
+
+  if (isPreviewHover && hoverIndex !== null && rects[hoverIndex]) {
+    drawOutline(rects[hoverIndex], {
+      stroke: "rgba(31, 93, 122, 0.8)",
+      width: 2,
+      fill: "rgba(31, 93, 122, 0.18)",
+    });
+  } else if (activeTileIndex !== null && rects[activeTileIndex]) {
+    drawOutline(rects[activeTileIndex], {
+      stroke: "rgba(31, 93, 122, 0.8)",
+      width: 2,
+      fill: "rgba(31, 93, 122, 0.18)",
+    });
+  }
 };
 
 const swapTilePositions = (fromIndex, toIndex) => {
   if (fromIndex === toIndex) return;
+  const gutter = parseInt(document.getElementById("gutter").value, 10) || 0;
+  const fromRects = computeTileRects(currentTiles, currentLayout.cols, currentLayout.rows, gutter);
   const next = currentTiles.map((tile) => ({ ...tile }));
   const from = next[fromIndex];
   const to = next[toIndex];
@@ -259,9 +346,9 @@ const swapTilePositions = (fromIndex, toIndex) => {
   to.colspan = fromPos.colspan;
   to.rowspan = fromPos.rowspan;
   currentTiles = next;
-  renderTiles(currentTiles, currentPluginMeta);
-  drawOverlay(currentTiles);
-  renderPreviewTiles(currentTiles);
+  const toRects = computeTileRects(currentTiles, currentLayout.cols, currentLayout.rows, gutter);
+  startTileAnimations(fromRects, toRects, [fromIndex, toIndex]);
+  renderTileConfig(currentTiles, currentPluginMeta);
   updateResetState();
 };
 
@@ -558,6 +645,8 @@ const applyPreset = (presetName, pluginMeta) => {
   const preset = PRESETS[presetName];
   if (!preset) return;
   presetPreview = null;
+  const gutter = parseInt(document.getElementById("gutter").value, 10) || 0;
+  const fromRects = computeTileRects(currentTiles, currentLayout.cols, currentLayout.rows, gutter);
   currentLayout = { cols: preset.cols, rows: preset.rows };
   document.querySelectorAll(".preset-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.preset === presetName);
@@ -574,227 +663,28 @@ const applyPreset = (presetName, pluginMeta) => {
     };
   });
   renderTiles(tiles, pluginMeta);
-  drawOverlay(tiles);
-  renderPreviewTiles(tiles);
+  const toRects = computeTileRects(currentTiles, currentLayout.cols, currentLayout.rows, gutter);
+  if (fromRects.length === toRects.length) {
+    startTileAnimations(fromRects, toRects, toRects.map((_, idx) => idx));
+  }
   requestPreview(collectConfig(), "Preview updated").catch(() => {});
   updateResetState();
 };
 
 const updateSafeViewport = () => {
-  if (!img.naturalWidth || !img.naturalHeight) return;
-  const targetWidth = safeViewportEl.parentElement.clientWidth;
-  const scale = targetWidth / img.naturalWidth;
-  const safeWBase = img.naturalWidth - SAFE.left - SAFE.right;
-  const safeHBase = img.naturalHeight - SAFE.top - SAFE.bottom;
-  const safeW = safeWBase * scale;
-  const safeH = safeHBase * scale;
+  const base = getPreviewBaseSize();
+  const scale = 1;
+  const safeW = base.safeWidth * scale;
+  const safeH = base.safeHeight * scale;
+  viewportSize = { width: safeW, height: safeH, scale, baseWidth: base.safeWidth, baseHeight: base.safeHeight };
+  canvas.width = base.safeWidth;
+  canvas.height = base.safeHeight;
+  canvas.style.width = `${safeW}px`;
+  canvas.style.height = `${safeH}px`;
   safeViewportEl.style.width = `${safeW}px`;
   safeViewportEl.style.height = `${safeH}px`;
-  img.style.transform = `translate(${-SAFE.left * scale}px, ${-SAFE.top * scale}px) scale(${scale})`;
-  img.style.transformOrigin = "top left";
-  viewportSize = { width: safeW, height: safeH, scale, baseWidth: safeWBase, baseHeight: safeHBase };
 };
 
-const drawOverlay = (tiles, layoutOverride = null, mode = "current") => {
-  overlayMode = mode;
-  overlayEl.innerHTML = "";
-  rectElements = new Map();
-  const width = viewportSize.width;
-  const height = viewportSize.height;
-  if (!width || !height) {
-    updateOverlayVisibility();
-    return;
-  }
-  const cols = layoutOverride?.cols ?? currentLayout.cols;
-  const rows = layoutOverride?.rows ?? currentLayout.rows;
-  const gutterBase = parseInt(document.getElementById("gutter").value, 10) || 0;
-  const baseWidth = viewportSize.baseWidth;
-  const baseHeight = viewportSize.baseHeight;
-  const colWBase = Math.floor((baseWidth - gutterBase * (cols - 1)) / cols);
-  const rowHBase = Math.floor((baseHeight - gutterBase * (rows - 1)) / rows);
-
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", `0 0 ${baseWidth} ${baseHeight}`);
-  svg.addEventListener("pointermove", (event) => {
-    if (!isDragging || dragPointerId !== event.pointerId) return;
-    const rect = svg.getBoundingClientRect();
-    const scaleX = baseWidth / rect.width;
-    const scaleY = baseHeight / rect.height;
-    const localX = (event.clientX - rect.left) * scaleX;
-    const localY = (event.clientY - rect.top) * scaleY;
-    if (dragStart && dragPreviewTile) {
-      const dx = localX - dragStart.x;
-      const dy = localY - dragStart.y;
-      dragPreviewTile.style.transform = `translate(${dx}px, ${dy}px)`;
-    }
-    let nextIndex = null;
-    for (const [idx, box] of overlayRects.entries()) {
-      if (
-        localX >= box.left &&
-        localX <= box.left + box.w &&
-        localY >= box.top &&
-        localY <= box.top + box.h
-      ) {
-        nextIndex = idx;
-        break;
-      }
-    }
-    if (nextIndex !== null && nextIndex !== dragTargetIndex) {
-      dragTargetIndex = nextIndex;
-      applyOverlayState();
-    }
-  });
-  svg.addEventListener("pointercancel", () => {
-    if (!isDragging) return;
-    dragSourceIndex = null;
-    dragTargetIndex = null;
-    dragTargetRect = null;
-    isDragging = false;
-    dragStart = null;
-    if (dragPreviewTile) {
-      dragPreviewTile.classList.remove("dragging");
-      dragPreviewTile.style.transform = "";
-      dragPreviewTile.style.zIndex = "";
-    }
-    dragPreviewTile = null;
-    if (dragPointerId !== null) {
-      svg.releasePointerCapture(dragPointerId);
-    }
-    dragPointerId = null;
-    drawOverlay(currentTiles);
-  });
-  svg.addEventListener("pointerup", () => {
-    if (!isDragging) return;
-    if (dragSourceIndex !== null && dragTargetIndex !== null) {
-      const nextActive = dragSourceIndex;
-      isDragging = false;
-      dragTargetRect = null;
-      dragStart = null;
-      if (dragPreviewTile) {
-        dragPreviewTile.classList.remove("dragging");
-        dragPreviewTile.style.transform = "";
-        dragPreviewTile.style.zIndex = "";
-      }
-      dragPreviewTile = null;
-      if (dragPointerId !== null) {
-        svg.releasePointerCapture(dragPointerId);
-      }
-      dragPointerId = null;
-      swapTilePositions(dragSourceIndex, dragTargetIndex);
-      activeTileIndex = nextActive;
-      renderTileConfig(currentTiles, currentPluginMeta);
-      applyOverlayState();
-      dragSourceIndex = null;
-      dragTargetIndex = null;
-      return;
-    }
-    dragSourceIndex = null;
-    dragTargetIndex = null;
-    dragTargetRect = null;
-    isDragging = false;
-    dragStart = null;
-    if (dragPreviewTile) {
-      dragPreviewTile.classList.remove("dragging");
-      dragPreviewTile.style.transform = "";
-      dragPreviewTile.style.zIndex = "";
-    }
-    dragPreviewTile = null;
-    if (dragPointerId !== null) {
-      svg.releasePointerCapture(dragPointerId);
-    }
-    dragPointerId = null;
-    applyOverlayState();
-  });
-  svg.addEventListener("pointerleave", () => {
-    if (!isDragging) return;
-    dragSourceIndex = null;
-    dragTargetIndex = null;
-    dragTargetRect = null;
-    isDragging = false;
-    dragStart = null;
-    if (dragPreviewTile) {
-      dragPreviewTile.classList.remove("dragging");
-      dragPreviewTile.style.transform = "";
-      dragPreviewTile.style.zIndex = "";
-    }
-    dragPreviewTile = null;
-    if (dragPointerId !== null) {
-      svg.releasePointerCapture(dragPointerId);
-    }
-    dragPointerId = null;
-    applyOverlayState();
-  });
-
-  const nextOverlayRects = new Map();
-  tiles.forEach((tile, idx) => {
-    const left = tile.col * (colWBase + gutterBase);
-    const top = tile.row * (rowHBase + gutterBase);
-    const w = colWBase * tile.colspan + gutterBase * (tile.colspan - 1);
-    const h = rowHBase * tile.rowspan + gutterBase * (tile.rowspan - 1);
-    const bbox = { left, top, w, h };
-    nextOverlayRects.set(idx, bbox);
-    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    rect.setAttribute("x", left + 1);
-    rect.setAttribute("y", top + 1);
-    rect.setAttribute("width", Math.max(0, w - 2));
-    rect.setAttribute("height", Math.max(0, h - 2));
-    rectElements.set(idx, rect);
-    rect.addEventListener("click", () => {
-      if (isDragging) return;
-      activeTileIndex = idx;
-      renderTileConfig(currentTiles, currentPluginMeta);
-      drawOverlay(tiles);
-    });
-    rect.addEventListener("pointerdown", (event) => {
-      isDragging = true;
-      dragSourceIndex = idx;
-      dragTargetIndex = idx;
-      dragTargetRect = rect;
-      dragPointerId = event.pointerId;
-      const svgRect = svg.getBoundingClientRect();
-      const localX = (event.clientX - svgRect.left) * (baseWidth / svgRect.width);
-      const localY = (event.clientY - svgRect.top) * (baseHeight / svgRect.height);
-      dragStart = {
-        x: localX,
-        y: localY,
-      };
-      dragPreviewTile = previewTileElements.get(idx) || null;
-      if (dragPreviewTile) {
-        dragPreviewTile.classList.add("dragging");
-        dragPreviewTile.style.zIndex = "5";
-      }
-      svg.setPointerCapture(event.pointerId);
-      hoverIndex = null;
-      applyOverlayState();
-    });
-    rect.addEventListener("pointerenter", () => {
-      if (isDragging) {
-        dragTargetIndex = idx;
-        if (dragTargetRect && dragTargetRect !== rect) {
-          dragTargetRect.classList.remove("drop-target");
-        }
-        dragTargetRect = rect;
-        applyOverlayState();
-        return;
-      }
-      hoverIndex = idx;
-      applyOverlayState();
-    });
-    rect.addEventListener("pointerleave", () => {
-      if (isDragging) return;
-      if (hoverIndex === idx) {
-        hoverIndex = null;
-        applyOverlayState();
-      }
-    });
-    const prev = lastOverlayRects.get(idx);
-    svg.appendChild(rect);
-  });
-  overlayEl.appendChild(svg);
-  lastOverlayRects = nextOverlayRects;
-  overlayRects = nextOverlayRects;
-  applyOverlayState();
-};
 const showPresetPreview = (presetName) => {
   const preset = PRESETS[presetName];
   if (!preset) return;
@@ -804,8 +694,6 @@ const showPresetPreview = (presetName) => {
   }
   hoverIndex = null;
   presetPreview = { tiles: preset.tiles, layout: { cols: preset.cols, rows: preset.rows } };
-  drawOverlay(preset.tiles, presetPreview.layout, "preset");
-  renderPreviewTiles(preset.tiles, presetPreview.layout);
 };
 
 const clearPresetPreview = () => {
@@ -814,8 +702,6 @@ const clearPresetPreview = () => {
     presetPreviewTimer = null;
     if (!presetPreview) return;
     presetPreview = null;
-    drawOverlay(currentTiles);
-    renderPreviewTiles(currentTiles);
   }, 100);
 };
 
@@ -836,8 +722,9 @@ const init = async () => {
   }
   renderTiles(config.layout.tiles, pluginMeta);
   updateSafeViewport();
-  drawOverlay(currentTiles);
-  renderPreviewTiles(currentTiles);
+  if (rafId === null) {
+    rafId = requestAnimationFrame(drawLoop);
+  }
   document.querySelectorAll(".preset-btn").forEach((btn) => {
     btn.addEventListener("click", () => applyPreset(btn.dataset.preset, pluginMeta));
     btn.addEventListener("mouseenter", () => showPresetPreview(btn.dataset.preset));
@@ -855,15 +742,63 @@ const init = async () => {
   borderColorSelect.addEventListener("change", updateResetState);
   scheduleInput.addEventListener("input", updateResetState);
   scheduleInput.addEventListener("change", updateResetState);
-  safeViewportEl.addEventListener("mouseenter", () => {
+  canvas.addEventListener("pointerenter", () => {
     isPreviewHover = true;
-    updateOverlayVisibility();
   });
-  safeViewportEl.addEventListener("mouseleave", () => {
+  canvas.addEventListener("pointerleave", () => {
     isPreviewHover = false;
     hoverIndex = null;
-    updateOverlayVisibility();
-    applyOverlayState();
+  });
+  canvas.addEventListener("pointerdown", (event) => {
+    const point = getCanvasPoint(event);
+    const hit = findTileIndex(point);
+    if (hit === null) return;
+    isDragging = true;
+    dragSourceIndex = hit;
+    dragTargetIndex = hit;
+    dragStart = point;
+    dragOffset = { x: 0, y: 0 };
+    dragPointerId = event.pointerId;
+    canvas.setPointerCapture(event.pointerId);
+    hoverIndex = null;
+  });
+  canvas.addEventListener("pointermove", (event) => {
+    const point = getCanvasPoint(event);
+    if (isDragging && dragPointerId === event.pointerId) {
+      dragOffset = { x: point.x - dragStart.x, y: point.y - dragStart.y };
+      const hit = findTileIndex(point);
+      dragTargetIndex = hit;
+      return;
+    }
+    hoverIndex = findTileIndex(point);
+  });
+  canvas.addEventListener("pointerup", () => {
+    if (!isDragging) return;
+    if (dragTargetIndex !== null && dragSourceIndex !== null) {
+      swapTilePositions(dragSourceIndex, dragTargetIndex);
+      activeTileIndex = dragSourceIndex;
+      renderTileConfig(currentTiles, currentPluginMeta);
+    }
+    isDragging = false;
+    if (dragPointerId !== null) {
+      canvas.releasePointerCapture(dragPointerId);
+    }
+    dragSourceIndex = null;
+    dragTargetIndex = null;
+    dragPointerId = null;
+    dragStart = null;
+    dragOffset = { x: 0, y: 0 };
+  });
+  canvas.addEventListener("pointercancel", () => {
+    isDragging = false;
+    if (dragPointerId !== null) {
+      canvas.releasePointerCapture(dragPointerId);
+    }
+    dragSourceIndex = null;
+    dragTargetIndex = null;
+    dragPointerId = null;
+    dragStart = null;
+    dragOffset = { x: 0, y: 0 };
   });
   requestPreview(config, "Preview updated").catch((e) => setStatus(e.message, false));
   updateResetState();
@@ -891,7 +826,6 @@ const init = async () => {
   if (![...document.querySelectorAll(".preset-btn")].some((b) => b.classList.contains("active"))) {
     document.querySelectorAll(".preset-btn").forEach((btn) => btn.classList.remove("active"));
   }
-  updateOverlayVisibility();
 };
 
 document.getElementById("saveConfig").addEventListener("click", async () => {
@@ -949,20 +883,11 @@ resetBtn.addEventListener("click", async () => {
     scheduleInput.value = parseScheduleMinutes(currentConfig.update_schedule);
   }
   renderTiles(currentConfig.layout.tiles, pluginMeta);
-  drawOverlay(currentTiles);
-  renderPreviewTiles(currentTiles);
   updateResetState();
 });
 
-img.addEventListener("load", () => {
-  updateSafeViewport();
-  drawOverlay(currentTiles);
-  renderPreviewTiles(currentTiles);
-});
 window.addEventListener("resize", () => {
   updateSafeViewport();
-  drawOverlay(currentTiles);
-  renderPreviewTiles(currentTiles);
 });
 document.addEventListener("click", (event) => {
   const inPreview = safeViewportEl.contains(event.target);
@@ -971,7 +896,6 @@ document.addEventListener("click", (event) => {
   if (activeTileIndex === null) return;
   activeTileIndex = null;
   renderTileConfig(currentTiles, currentPluginMeta);
-  drawOverlay(currentTiles);
 });
 if (!appState.initialized) {
   appState.initialized = true;
