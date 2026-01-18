@@ -9,7 +9,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from my_dashboard import load_config, render_dashboard, default_config
-from plugins import PLUGIN_DEFAULTS, PLUGIN_SCHEMAS
+from plugins import PLUGIN_DEFAULTS, PLUGIN_SCHEMAS, PLUGIN_NAMES
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
@@ -101,6 +101,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             return self._send_json({
                 "defaults": PLUGIN_DEFAULTS,
                 "schemas": PLUGIN_SCHEMAS,
+                "names": PLUGIN_NAMES,
             })
         return super().do_GET()
 

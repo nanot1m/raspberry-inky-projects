@@ -3,7 +3,13 @@
   "layout": {
     "cols": 2,
     "rows": 2,
-    "gutter": 4,
+    "gutter": 8,
+    "border": {
+      "width": 1,
+      "radius": 4,
+      "style": "solid",
+      "color": "black"
+    },
     "tiles": [
       {
         "plugin": "transit",

@@ -50,3 +50,8 @@ PLUGIN_SCHEMAS = {
     "transit": TRANSIT_SCHEMA,
     "weather": WEATHER_SCHEMA,
 }
+
+PLUGIN_NAMES = {
+    "transit": "Transit",
+    "weather": "Weather",
+}

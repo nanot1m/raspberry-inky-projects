@@ -6,6 +6,11 @@ const safeViewportEl = document.getElementById("safeViewport");
 const resetBtn = document.getElementById("resetConfig");
 const scheduleInput = document.getElementById("updateInterval");
 const previewTilesEl = document.getElementById("previewTiles");
+const previewLoadingEl = document.getElementById("previewLoading");
+const borderWidthInput = document.getElementById("borderWidth");
+const borderRadiusInput = document.getElementById("borderRadius");
+const borderStyleSelect = document.getElementById("borderStyle");
+const borderColorSelect = document.getElementById("borderColor");
 let activeTileIndex = null;
 const SAFE = { left: 60, top: 35, right: 55, bottom: 10 };
 let viewportSize = { width: 0, height: 0, scale: 1, baseWidth: 0, baseHeight: 0 };
@@ -70,10 +75,16 @@ const waitForImageLoad = (src) => new Promise((resolve, reject) => {
   img.src = src;
 });
 
+const setPreviewLoading = (loading) => {
+  if (!previewLoadingEl) return;
+  previewLoadingEl.classList.toggle("visible", loading);
+};
+
 const requestPreview = async (config, successMessage = "Preview updated") => {
   if (appState.previewRequest) return appState.previewRequest;
   cancelPreviewTimer();
   setStatus("Generating preview...");
+  setPreviewLoading(true);
   appState.previewRequest = (async () => {
     try {
       const res = await fetchJson("/api/preview", {
@@ -92,6 +103,7 @@ const requestPreview = async (config, successMessage = "Preview updated") => {
       setStatus(err.message, false);
       throw err;
     } finally {
+      setPreviewLoading(false);
       appState.previewRequest = null;
     }
   })();
@@ -136,6 +148,13 @@ const computeTileRects = (tiles, cols, rows, gutterBase) => {
     return { left, top, w, h };
   });
 };
+
+const getBorderConfig = () => ({
+  width: borderWidthInput.value === "" ? 0 : Number(borderWidthInput.value),
+  radius: borderRadiusInput.value === "" ? 0 : Number(borderRadiusInput.value),
+  style: borderStyleSelect.value,
+  color: borderColorSelect.value,
+});
 
 const renderPreviewTiles = (tiles, layoutOverride = null) => {
   if (!viewportSize.width || !viewportSize.height) return;
@@ -246,180 +265,171 @@ const swapTilePositions = (fromIndex, toIndex) => {
   updateResetState();
 };
 
+const renderTileConfig = (tiles, pluginMeta) => {
+  tilesEl.innerHTML = "";
+  if (activeTileIndex == null || !tiles[activeTileIndex]) {
+    const empty = document.createElement("div");
+    empty.className = "tile-empty";
+    empty.textContent = "Select a tile in the preview to edit its settings.";
+    tilesEl.appendChild(empty);
+    return;
+  }
+  const tile = tiles[activeTileIndex];
+  const idx = activeTileIndex;
+  const wrap = document.createElement("div");
+  wrap.className = "tile open";
+
+  const options = document.createElement("div");
+  options.className = "tile-options";
+
+  const pluginRow = document.createElement("div");
+  pluginRow.className = "config-grid plugin-row";
+  const pluginLabel = document.createElement("label");
+  pluginLabel.textContent = "Plugin";
+  pluginRow.appendChild(pluginLabel);
+
+  const select = document.createElement("select");
+  Object.keys(pluginMeta.defaults).forEach((name) => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = pluginMeta.names?.[name] || name;
+    if (tile.plugin === name) opt.selected = true;
+    select.appendChild(opt);
+  });
+  pluginRow.appendChild(select);
+  options.appendChild(pluginRow);
+
+  const cfgWrap = document.createElement("div");
+  cfgWrap.className = "config-fields config-grid";
+  options.appendChild(cfgWrap);
+
+  const schema = pluginMeta.schemas[tile.plugin] || {};
+  const defaults = pluginMeta.defaults[tile.plugin] || {};
+  const current = tile.config || defaults;
+
+  const addField = (key, def) => {
+    const label = document.createElement("label");
+    label.textContent = def.label || key;
+    cfgWrap.appendChild(label);
+
+    if (def.type === "enum") {
+      const sel = document.createElement("select");
+      sel.dataset.key = key;
+      (def.options || []).forEach((optVal) => {
+        const opt = document.createElement("option");
+        opt.value = optVal;
+        opt.textContent = optVal;
+        if (current[key] === optVal) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      cfgWrap.appendChild(sel);
+      return;
+    }
+
+    if (def.type === "list") {
+      const list = Array.isArray(current[key]) ? current[key] : [];
+      const listWrap = document.createElement("div");
+      listWrap.className = "array-list";
+      listWrap.dataset.key = key;
+      listWrap.dataset.itemType = def.itemType || "string";
+      list.forEach((value) => {
+        const row = document.createElement("div");
+        row.className = "array-item";
+        const input = document.createElement("input");
+        input.type = "text";
+        if (def.itemType === "number") {
+          input.type = "number";
+          if (def.min !== undefined) input.min = def.min;
+          if (def.max !== undefined) input.max = def.max;
+          if (def.step !== undefined) input.step = def.step;
+        }
+        input.value = value ?? "";
+        const del = document.createElement("button");
+        del.type = "button";
+        del.textContent = "Remove";
+        del.addEventListener("click", () => {
+          row.remove();
+          updateResetState();
+        });
+        row.appendChild(input);
+        row.appendChild(del);
+        listWrap.appendChild(row);
+      });
+      const addBtn = document.createElement("button");
+      addBtn.type = "button";
+      addBtn.textContent = "Add";
+      addBtn.addEventListener("click", () => {
+        const row = document.createElement("div");
+        row.className = "array-item";
+        const input = document.createElement("input");
+        input.type = def.itemType === "number" ? "number" : "text";
+        if (def.itemType === "number") {
+          if (def.min !== undefined) input.min = def.min;
+          if (def.max !== undefined) input.max = def.max;
+          if (def.step !== undefined) input.step = def.step;
+        }
+        const del = document.createElement("button");
+        del.type = "button";
+        del.textContent = "Remove";
+        del.addEventListener("click", () => {
+          row.remove();
+          updateResetState();
+        });
+        row.appendChild(input);
+        row.appendChild(del);
+        listWrap.appendChild(row);
+        updateResetState();
+      });
+      const actions = document.createElement("div");
+      actions.className = "array-actions";
+      actions.appendChild(addBtn);
+      cfgWrap.appendChild(listWrap);
+      cfgWrap.appendChild(actions);
+      return;
+    }
+
+    const input = document.createElement("input");
+    input.dataset.key = key;
+    if (def.type === "number") {
+      input.type = "number";
+      if (def.min !== undefined) input.min = def.min;
+      if (def.max !== undefined) input.max = def.max;
+      if (def.step !== undefined) input.step = def.step;
+      input.value = current[key] ?? "";
+    } else if (def.type === "boolean") {
+      input.type = "checkbox";
+      input.checked = Boolean(current[key]);
+    } else {
+      input.type = "text";
+      input.value = current[key] ?? "";
+    }
+    cfgWrap.appendChild(input);
+  };
+
+  Object.entries(schema).forEach(([key, def]) => addField(key, def));
+
+  wrap.appendChild(options);
+  wrap.dataset.index = idx;
+  wrap.dataset.pluginSelect = "";
+  wrap.dataset.configInput = "";
+  select.className = "plugin-select";
+  cfgWrap.classList.add("config-input");
+
+  select.addEventListener("change", () => {
+    const plugin = select.value;
+    const defaultsForPlugin = pluginMeta.defaults[plugin] || {};
+    currentTiles[idx] = { ...currentTiles[idx], plugin, config: { ...defaultsForPlugin } };
+    renderTileConfig(currentTiles, pluginMeta);
+    updateResetState();
+  });
+
+  tilesEl.appendChild(wrap);
+};
+
 const renderTiles = (tiles, pluginMeta) => {
   currentPluginMeta = pluginMeta;
   currentTiles = tiles.map((tile) => ({ ...tile }));
-  tilesEl.innerHTML = "";
-  tiles.forEach((tile, idx) => {
-    const wrap = document.createElement("div");
-    wrap.className = "tile";
-    wrap.dataset.col = tile.col ?? 0;
-    wrap.dataset.row = tile.row ?? 0;
-    wrap.dataset.colspan = tile.colspan ?? 1;
-    wrap.dataset.rowspan = tile.rowspan ?? 1;
-
-    const title = document.createElement("div");
-    title.textContent = `Tile ${idx + 1}`;
-    title.className = "tile-header";
-    title.draggable = true;
-    wrap.appendChild(title);
-
-    const options = document.createElement("div");
-    options.className = "tile-options";
-
-    const pluginLabel = document.createElement("label");
-    pluginLabel.textContent = "Plugin";
-    options.appendChild(pluginLabel);
-
-    const select = document.createElement("select");
-    Object.keys(pluginMeta.defaults).forEach((name) => {
-      const opt = document.createElement("option");
-      opt.value = name;
-      opt.textContent = name;
-      if (tile.plugin === name) opt.selected = true;
-      select.appendChild(opt);
-    });
-    options.appendChild(select);
-
-    const cfgWrap = document.createElement("div");
-    cfgWrap.className = "config-fields";
-    options.appendChild(cfgWrap);
-
-    const schema = pluginMeta.schemas[tile.plugin] || {};
-    const defaults = pluginMeta.defaults[tile.plugin] || {};
-    const current = tile.config || defaults;
-
-    const addField = (key, def) => {
-      const label = document.createElement("label");
-      label.textContent = def.label || key;
-      cfgWrap.appendChild(label);
-
-      if (def.type === "enum") {
-        const sel = document.createElement("select");
-        sel.dataset.key = key;
-        (def.options || []).forEach((optVal) => {
-          const opt = document.createElement("option");
-          opt.value = optVal;
-          opt.textContent = optVal;
-          if (current[key] === optVal) opt.selected = true;
-          sel.appendChild(opt);
-        });
-        cfgWrap.appendChild(sel);
-        return;
-      }
-
-      if (def.type === "list") {
-        const list = Array.isArray(current[key]) ? current[key] : [];
-        const listWrap = document.createElement("div");
-        listWrap.className = "array-list";
-        listWrap.dataset.key = key;
-        listWrap.dataset.itemType = def.itemType || "string";
-        list.forEach((value) => {
-          const row = document.createElement("div");
-          row.className = "array-item";
-          const input = document.createElement("input");
-          input.type = "text";
-          if (def.itemType === "number") {
-            input.type = "number";
-            if (def.min !== undefined) input.min = def.min;
-            if (def.max !== undefined) input.max = def.max;
-            if (def.step !== undefined) input.step = def.step;
-          }
-          input.value = value ?? "";
-          const del = document.createElement("button");
-          del.type = "button";
-          del.textContent = "Remove";
-          del.addEventListener("click", () => {
-            row.remove();
-            updateResetState();
-          });
-          row.appendChild(input);
-          row.appendChild(del);
-          listWrap.appendChild(row);
-        });
-        const addBtn = document.createElement("button");
-        addBtn.type = "button";
-        addBtn.textContent = "Add";
-        addBtn.addEventListener("click", () => {
-          const row = document.createElement("div");
-          row.className = "array-item";
-          const input = document.createElement("input");
-          input.type = def.itemType === "number" ? "number" : "text";
-          if (def.itemType === "number") {
-            if (def.min !== undefined) input.min = def.min;
-            if (def.max !== undefined) input.max = def.max;
-            if (def.step !== undefined) input.step = def.step;
-          }
-          const del = document.createElement("button");
-          del.type = "button";
-          del.textContent = "Remove";
-          del.addEventListener("click", () => {
-            row.remove();
-            updateResetState();
-          });
-          row.appendChild(input);
-          row.appendChild(del);
-          listWrap.appendChild(row);
-          updateResetState();
-        });
-        const actions = document.createElement("div");
-        actions.className = "array-actions";
-        actions.appendChild(addBtn);
-        cfgWrap.appendChild(listWrap);
-        cfgWrap.appendChild(actions);
-        return;
-      }
-
-      const input = document.createElement("input");
-      input.dataset.key = key;
-      if (def.type === "number") {
-        input.type = "number";
-        if (def.min !== undefined) input.min = def.min;
-        if (def.max !== undefined) input.max = def.max;
-        if (def.step !== undefined) input.step = def.step;
-        input.value = current[key] ?? "";
-      } else if (def.type === "boolean") {
-        input.type = "checkbox";
-        input.checked = Boolean(current[key]);
-      } else {
-        input.type = "text";
-        input.value = current[key] ?? "";
-      }
-      cfgWrap.appendChild(input);
-    };
-
-    Object.entries(schema).forEach(([key, def]) => addField(key, def));
-
-    wrap.appendChild(options);
-
-    wrap.dataset.index = idx;
-    wrap.dataset.pluginSelect = "";
-    wrap.dataset.configInput = "";
-    wrap.querySelectorAll("select")[0].className = "plugin-select";
-    cfgWrap.classList.add("config-input");
-
-    title.addEventListener("click", () => {
-      wrap.classList.toggle("open");
-      activeTileIndex = wrap.classList.contains("open") ? idx : null;
-      drawOverlay(currentTiles);
-    });
-    title.addEventListener("dragstart", (event) => {
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", String(idx));
-    });
-    wrap.addEventListener("dragover", (event) => {
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "move";
-    });
-    wrap.addEventListener("drop", (event) => {
-      event.preventDefault();
-      const fromIndex = Number(event.dataTransfer.getData("text/plain"));
-      if (Number.isNaN(fromIndex)) return;
-      reorderTiles(fromIndex, idx);
-    });
-
-    tilesEl.appendChild(wrap);
-  });
+  renderTileConfig(currentTiles, pluginMeta);
 };
 
 const parseScheduleMinutes = (schedule) => {
@@ -433,33 +443,41 @@ const parseScheduleMinutes = (schedule) => {
   return "";
 };
 
+const readSelectedTileConfig = () => {
+  const config = {};
+  const wrap = tilesEl.querySelector(".config-input");
+  if (!wrap) return config;
+  wrap.querySelectorAll("[data-key]").forEach((el) => {
+    const key = el.dataset.key;
+    if (el.classList.contains("array-list")) {
+      const items = [];
+      el.querySelectorAll(".array-item input").forEach((input) => {
+        if (input.type === "number") {
+          if (input.value !== "") items.push(Number(input.value));
+        } else if (input.value.trim() !== "") {
+          items.push(input.value.trim());
+        }
+      });
+      config[key] = items;
+    } else if (el.type === "checkbox") {
+      config[key] = el.checked;
+    } else if (el.type === "number") {
+      config[key] = el.value === "" ? null : Number(el.value);
+    } else {
+      config[key] = el.value;
+    }
+  });
+  return config;
+};
+
 const collectConfig = () => {
   const tiles = [];
-  document.querySelectorAll("#tiles > div").forEach((wrap) => {
-    const plugin = wrap.querySelector(".plugin-select").value;
-    const config = {};
-    wrap.querySelectorAll(".config-input [data-key]").forEach((el) => {
-      const key = el.dataset.key;
-      if (el.classList.contains("array-list")) {
-        const items = [];
-        el.querySelectorAll(".array-item input").forEach((input) => {
-          if (input.type === "number") {
-            if (input.value !== "") items.push(Number(input.value));
-          } else if (input.value.trim() !== "") {
-            items.push(input.value.trim());
-          }
-        });
-        config[key] = items;
-      } else if (el.type === "checkbox") {
-        config[key] = el.checked;
-      } else if (el.type === "number") {
-        config[key] = el.value === "" ? null : Number(el.value);
-      } else {
-        config[key] = el.value;
-      }
-    });
-    const existing = (currentConfig?.layout?.tiles || [])[tiles.length] || {};
-    const layoutFallback = currentTiles[tiles.length] || {};
+  const selectedPlugin = tilesEl.querySelector(".plugin-select")?.value;
+  currentTiles.forEach((tile, idx) => {
+    const existing = (currentConfig?.layout?.tiles || [])[idx] || {};
+    const layoutFallback = currentTiles[idx] || {};
+    const config = idx === activeTileIndex ? readSelectedTileConfig() : (tile.config || {});
+    const plugin = idx === activeTileIndex && selectedPlugin ? selectedPlugin : tile.plugin;
     tiles.push({
       plugin,
       col: layoutFallback.col ?? existing.col,
@@ -475,6 +493,12 @@ const collectConfig = () => {
       cols: currentLayout.cols,
       rows: currentLayout.rows,
       gutter: parseInt(document.getElementById("gutter").value, 10),
+      border: {
+        width: borderWidthInput.value === "" ? 0 : Number(borderWidthInput.value),
+        radius: borderRadiusInput.value === "" ? 0 : Number(borderRadiusInput.value),
+        style: borderStyleSelect.value,
+        color: borderColorSelect.value,
+      },
       tiles,
     },
   };
@@ -658,9 +682,7 @@ const drawOverlay = (tiles, layoutOverride = null, mode = "current") => {
       dragPointerId = null;
       swapTilePositions(dragSourceIndex, dragTargetIndex);
       activeTileIndex = nextActive;
-      document.querySelectorAll("#tiles .tile").forEach((t, i) => {
-        t.classList.toggle("open", i === nextActive);
-      });
+      renderTileConfig(currentTiles, currentPluginMeta);
       applyOverlayState();
       dragSourceIndex = null;
       dragTargetIndex = null;
@@ -720,9 +742,7 @@ const drawOverlay = (tiles, layoutOverride = null, mode = "current") => {
     rect.addEventListener("click", () => {
       if (isDragging) return;
       activeTileIndex = idx;
-      document.querySelectorAll("#tiles .tile").forEach((t, i) => {
-        t.classList.toggle("open", i === idx);
-      });
+      renderTileConfig(currentTiles, currentPluginMeta);
       drawOverlay(tiles);
     });
     rect.addEventListener("pointerdown", (event) => {
@@ -768,15 +788,6 @@ const drawOverlay = (tiles, layoutOverride = null, mode = "current") => {
       }
     });
     const prev = lastOverlayRects.get(idx);
-    if (prev && !isDragging) {
-      rect.animate(
-        [
-          { x: prev.left + 1, y: prev.top + 1, width: Math.max(0, prev.w - 2), height: Math.max(0, prev.h - 2) },
-          { x: left + 1, y: top + 1, width: Math.max(0, w - 2), height: Math.max(0, h - 2) },
-        ],
-        { duration: 180, easing: "ease-out" }
-      );
-    }
     svg.appendChild(rect);
   });
   overlayEl.appendChild(svg);
@@ -814,6 +825,10 @@ const init = async () => {
   currentConfig = config;
   currentLayout = { cols: config.layout.cols, rows: config.layout.rows };
   document.getElementById("gutter").value = config.layout.gutter;
+  borderWidthInput.value = config.layout.border?.width ?? 1;
+  borderRadiusInput.value = config.layout.border?.radius ?? 0;
+  borderStyleSelect.value = config.layout.border?.style ?? "solid";
+  borderColorSelect.value = config.layout.border?.color ?? "black";
   if (config.update_interval_minutes != null) {
     scheduleInput.value = String(config.update_interval_minutes);
   } else {
@@ -832,6 +847,12 @@ const init = async () => {
   tilesEl.addEventListener("change", updateResetState);
   document.getElementById("gutter").addEventListener("input", updateResetState);
   document.getElementById("gutter").addEventListener("change", updateResetState);
+  borderWidthInput.addEventListener("input", updateResetState);
+  borderWidthInput.addEventListener("change", updateResetState);
+  borderRadiusInput.addEventListener("input", updateResetState);
+  borderRadiusInput.addEventListener("change", updateResetState);
+  borderStyleSelect.addEventListener("change", updateResetState);
+  borderColorSelect.addEventListener("change", updateResetState);
   scheduleInput.addEventListener("input", updateResetState);
   scheduleInput.addEventListener("change", updateResetState);
   safeViewportEl.addEventListener("mouseenter", () => {
@@ -918,6 +939,10 @@ resetBtn.addEventListener("click", async () => {
   const pluginMeta = await fetchJson("/api/plugins");
   currentLayout = { cols: currentConfig.layout.cols, rows: currentConfig.layout.rows };
   document.getElementById("gutter").value = currentConfig.layout.gutter;
+  borderWidthInput.value = currentConfig.layout.border?.width ?? 1;
+  borderRadiusInput.value = currentConfig.layout.border?.radius ?? 0;
+  borderStyleSelect.value = currentConfig.layout.border?.style ?? "solid";
+  borderColorSelect.value = currentConfig.layout.border?.color ?? "black";
   if (currentConfig.update_interval_minutes != null) {
     scheduleInput.value = String(currentConfig.update_interval_minutes);
   } else {
@@ -938,6 +963,15 @@ window.addEventListener("resize", () => {
   updateSafeViewport();
   drawOverlay(currentTiles);
   renderPreviewTiles(currentTiles);
+});
+document.addEventListener("click", (event) => {
+  const inPreview = safeViewportEl.contains(event.target);
+  const layoutPanel = tilesEl.closest(".panel");
+  if (inPreview || (layoutPanel && layoutPanel.contains(event.target))) return;
+  if (activeTileIndex === null) return;
+  activeTileIndex = null;
+  renderTileConfig(currentTiles, currentPluginMeta);
+  drawOverlay(currentTiles);
 });
 if (!appState.initialized) {
   appState.initialized = true;

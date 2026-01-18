@@ -75,6 +75,31 @@ def draw_dotted_rounded_rect(draw, bbox, radius, dot, gap, color):
                 angle += angle_step
 
 
+def draw_rounded_rect_outline(draw, bbox, radius, color, width=1):
+    if width <= 0:
+        return
+    x0, y0, x1, y1 = bbox
+    for offset in range(width):
+        ox0 = x0 + offset
+        oy0 = y0 + offset
+        ox1 = x1 - offset
+        oy1 = y1 - offset
+        r = max(0, radius - offset)
+        if r <= 0:
+            draw.rectangle((ox0, oy0, ox1, oy1), outline=color)
+            continue
+        # Corners
+        draw.arc((ox0, oy0, ox0 + 2 * r, oy0 + 2 * r), 180, 270, fill=color)
+        draw.arc((ox1 - 2 * r, oy0, ox1, oy0 + 2 * r), 270, 360, fill=color)
+        draw.arc((ox1 - 2 * r, oy1 - 2 * r, ox1, oy1), 0, 90, fill=color)
+        draw.arc((ox0, oy1 - 2 * r, ox0 + 2 * r, oy1), 90, 180, fill=color)
+        # Edges
+        draw.line((ox0 + r, oy0, ox1 - r, oy0), fill=color)
+        draw.line((ox0 + r, oy1, ox1 - r, oy1), fill=color)
+        draw.line((ox0, oy0 + r, ox0, oy1 - r), fill=color)
+        draw.line((ox1, oy0 + r, ox1, oy1 - r), fill=color)
+
+
 def load_photo_for_box(box_size):
     if not PHOTO_DIR.exists():
         return None
@@ -206,6 +231,12 @@ def default_config():
             "cols": 2,
             "rows": 2,
             "gutter": 12,
+            "border": {
+                "width": 1,
+                "radius": 0,
+                "style": "solid",
+                "color": "black",
+            },
             "tiles": [
                 {
                     "plugin": "transit",
@@ -367,6 +398,31 @@ def render_dashboard(config=None, output_path=None, upload=False):
         "now": datetime.now().strftime("%Y-%m-%d %H:%M"),
     }
 
+    border_cfg = layout.get("border") or {}
+    try:
+        border_width = int(border_cfg.get("width", 1))
+    except (TypeError, ValueError):
+        border_width = 1
+    try:
+        border_radius = int(border_cfg.get("radius", 0))
+    except (TypeError, ValueError):
+        border_radius = 0
+    border_width = max(0, border_width)
+    border_radius = max(0, border_radius)
+    border_style = str(border_cfg.get("style", "solid")).lower()
+    if border_style not in ("solid", "dotted"):
+        border_style = "solid"
+    color_map = {
+        "black": inky.BLACK,
+        "white": inky.WHITE,
+        "green": inky.GREEN,
+        "blue": inky.BLUE,
+        "red": inky.RED,
+        "yellow": inky.YELLOW,
+        "orange": inky.ORANGE,
+    }
+    border_color = color_map.get(str(border_cfg.get("color", "black")).lower(), inky.BLACK)
+
     for spec, bbox in layout_tiles(layout_area, cols=cols, rows=rows, gutter=gutter, tile_layout=tiles):
         left, top, right, bottom = bbox
         tile_w = max(1, right - left + 1)
@@ -375,7 +431,7 @@ def render_dashboard(config=None, output_path=None, upload=False):
         tile_img.putpalette(PALETTE_IMAGE.getpalette())
         tile_draw = ImageDraw.Draw(tile_img)
         tile_bbox = (0, 0, tile_w - 1, tile_h - 1)
-        tile_draw.rectangle(tile_bbox, outline=inky.BLACK, fill=inky.WHITE)
+        tile_draw.rectangle(tile_bbox, fill=inky.WHITE)
 
         tile_ctx = {
             **ctx,
@@ -391,6 +447,22 @@ def render_dashboard(config=None, output_path=None, upload=False):
                 draw_tile_error(tile_ctx, tile_bbox, str(exc))
         else:
             draw_tile_error(tile_ctx, tile_bbox, f"Unknown plugin: {spec.plugin}")
+
+        tile_border_width = min(border_width, (min(tile_w, tile_h) - 1) // 2)
+        tile_radius = min(border_radius, (min(tile_w, tile_h) - 1) // 2)
+        if tile_border_width > 0:
+            if border_style == "dotted":
+                dot = max(1, tile_border_width)
+                gap = max(1, tile_border_width)
+                draw_dotted_rounded_rect(tile_draw, tile_bbox, tile_radius, dot, gap, border_color)
+            else:
+                if hasattr(tile_draw, "rounded_rectangle") and tile_radius > 0:
+                    tile_draw.rounded_rectangle(tile_bbox, radius=tile_radius, outline=border_color, width=tile_border_width)
+                else:
+                    if tile_radius > 0:
+                        draw_rounded_rect_outline(tile_draw, tile_bbox, tile_radius, border_color, width=tile_border_width)
+                    else:
+                        tile_draw.rectangle(tile_bbox, outline=border_color, width=tile_border_width)
 
         img.paste(tile_img, (left, top))
 

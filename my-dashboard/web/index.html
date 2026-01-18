@@ -17,6 +17,7 @@
               <img id="dashboard" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="Dashboard" />
               <div id="previewTiles" class="preview-tiles"></div>
             <div id="overlay" class="overlay"></div>
+            <div id="previewLoading" class="preview-loading">Loading preview…</div>
             </div>
           </div>
         </div>
@@ -56,10 +57,31 @@
               </svg>
             </button>
           </div>
-          <label>Gutter</label>
-          <input id="gutter" type="number" min="0" max="40" value="12" />
-          <label>Update frequency (minutes)</label>
-          <input id="updateInterval" type="number" min="1" step="1" placeholder="15" />
+          <div class="layout-grid">
+            <label>Gutter</label>
+            <input id="gutter" type="number" min="0" max="40" value="12" />
+            <label>Border width</label>
+            <input id="borderWidth" type="number" min="0" max="10" value="1" />
+            <label>Border radius</label>
+            <input id="borderRadius" type="number" min="0" max="30" value="0" />
+            <label>Border style</label>
+            <select id="borderStyle">
+              <option value="solid">solid</option>
+              <option value="dotted">dotted</option>
+            </select>
+            <label>Border color</label>
+            <select id="borderColor">
+              <option value="black">black</option>
+              <option value="white">white</option>
+              <option value="green">green</option>
+              <option value="blue">blue</option>
+              <option value="red">red</option>
+              <option value="yellow">yellow</option>
+              <option value="orange">orange</option>
+            </select>
+            <label>Update frequency (minutes)</label>
+            <input id="updateInterval" type="number" min="1" step="1" placeholder="15" />
+          </div>
           <div id="tiles"></div>
           <div class="buttons">
             <button id="saveConfig">Save Config</button>
