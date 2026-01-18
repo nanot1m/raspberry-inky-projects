@@ -27,7 +27,7 @@
             </div>
           </div>
         </div>
-        <div class="panel panel-layout">
+        <div class="panel panel-layout" id="layoutPanel">
           <h3>Layout</h3>
           <div class="preset-bar">
             <button class="preset-btn" data-preset="full" title="Fullscreen" aria-label="Fullscreen">
@@ -87,6 +87,12 @@
             </select>
             <label>Update frequency (minutes)</label>
             <input id="updateInterval" type="number" min="1" step="1" placeholder="15" />
+          </div>
+        </div>
+        <div class="panel panel-config hidden" id="configPanel">
+          <div class="panel-header">
+            <h3>Tile</h3>
+            <button type="button" id="backToLayout">Back</button>
           </div>
           <div id="tiles"></div>
         </div>

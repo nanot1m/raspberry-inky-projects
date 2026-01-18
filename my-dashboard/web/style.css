@@ -135,6 +135,19 @@ body {
   color: var(--muted);
   margin: 0 0 10px;
 }
+.panel.hidden {
+  display: none;
+}
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.panel-header h3 {
+  margin: 0;
+}
 .layout-grid {
   display: flex;
   flex-direction: column;

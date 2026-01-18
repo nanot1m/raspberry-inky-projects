@@ -7,6 +7,9 @@ const borderWidthInput = document.getElementById("borderWidth");
 const borderRadiusInput = document.getElementById("borderRadius");
 const borderStyleSelect = document.getElementById("borderStyle");
 const borderColorSelect = document.getElementById("borderColor");
+const layoutPanelEl = document.getElementById("layoutPanel");
+const configPanelEl = document.getElementById("configPanel");
+const backToLayoutBtn = document.getElementById("backToLayout");
 const canvas = document.getElementById("previewCanvas");
 const ctx = canvas.getContext("2d", { alpha: false });
 
@@ -352,8 +355,15 @@ const swapTilePositions = (fromIndex, toIndex) => {
   updateResetState();
 };
 
+const updatePanelVisibility = () => {
+  const hasSelection = activeTileIndex != null;
+  layoutPanelEl.classList.toggle("hidden", hasSelection);
+  configPanelEl.classList.toggle("hidden", !hasSelection);
+};
+
 const renderTileConfig = (tiles, pluginMeta) => {
   tilesEl.innerHTML = "";
+  updatePanelVisibility();
   if (activeTileIndex == null || !tiles[activeTileIndex]) {
     const empty = document.createElement("div");
     empty.className = "tile-empty";
@@ -732,6 +742,11 @@ const init = async () => {
   });
   tilesEl.addEventListener("input", updateResetState);
   tilesEl.addEventListener("change", updateResetState);
+  backToLayoutBtn.addEventListener("click", () => {
+    if (activeTileIndex === null) return;
+    activeTileIndex = null;
+    renderTileConfig(currentTiles, currentPluginMeta);
+  });
   document.getElementById("gutter").addEventListener("input", updateResetState);
   document.getElementById("gutter").addEventListener("change", updateResetState);
   borderWidthInput.addEventListener("input", updateResetState);
@@ -891,8 +906,7 @@ window.addEventListener("resize", () => {
 });
 document.addEventListener("click", (event) => {
   const inPreview = safeViewportEl.contains(event.target);
-  const layoutPanel = tilesEl.closest(".panel");
-  if (inPreview || (layoutPanel && layoutPanel.contains(event.target))) return;
+  if (inPreview || layoutPanelEl.contains(event.target) || configPanelEl.contains(event.target)) return;
   if (activeTileIndex === null) return;
   activeTileIndex = null;
   renderTileConfig(currentTiles, currentPluginMeta);
