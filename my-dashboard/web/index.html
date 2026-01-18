@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>My Dashboard</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="card">
+      <h1>My Dashboard</h1>
+      <div class="row">
+        <div class="panel">
+          <h3>Preview</h3>
+          <div class="preview-wrap">
+            <div id="safeViewport" class="safe-viewport">
+              <img id="dashboard" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="Dashboard" />
+              <div id="previewTiles" class="preview-tiles"></div>
+            <div id="overlay" class="overlay"></div>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Layout</h3>
+          <div class="preset-bar">
+            <button class="preset-btn" data-preset="full" title="Fullscreen" aria-label="Fullscreen">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" fill="none" stroke="#222" stroke-width="1.5"/>
+              </svg>
+            </button>
+            <button class="preset-btn" data-preset="halves" title="Halves" aria-label="Halves">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" fill="none" stroke="#222" stroke-width="1.5"/>
+                <line x1="12" y1="3" x2="12" y2="21" stroke="#222" stroke-width="1.5"/>
+              </svg>
+            </button>
+            <button class="preset-btn" data-preset="left-full-right-halves" title="Left Full / Right Halves" aria-label="Left Full / Right Halves">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" fill="none" stroke="#222" stroke-width="1.5"/>
+                <line x1="12" y1="3" x2="12" y2="21" stroke="#222" stroke-width="1.5"/>
+                <line x1="12" y1="12" x2="21" y2="12" stroke="#222" stroke-width="1.5"/>
+              </svg>
+            </button>
+            <button class="preset-btn" data-preset="left-halves-right-full" title="Left Halves / Right Full" aria-label="Left Halves / Right Full">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" fill="none" stroke="#222" stroke-width="1.5"/>
+                <line x1="12" y1="3" x2="12" y2="21" stroke="#222" stroke-width="1.5"/>
+                <line x1="3" y1="12" x2="12" y2="12" stroke="#222" stroke-width="1.5"/>
+              </svg>
+            </button>
+            <button class="preset-btn" data-preset="quarters" title="Quarters" aria-label="Quarters">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" fill="none" stroke="#222" stroke-width="1.5"/>
+                <line x1="12" y1="3" x2="12" y2="21" stroke="#222" stroke-width="1.5"/>
+                <line x1="3" y1="12" x2="21" y2="12" stroke="#222" stroke-width="1.5"/>
+              </svg>
+            </button>
+          </div>
+          <label>Gutter</label>
+          <input id="gutter" type="number" min="0" max="40" value="12" />
+          <label>Update frequency (minutes)</label>
+          <input id="updateInterval" type="number" min="1" step="1" placeholder="15" />
+          <div id="tiles"></div>
+          <div class="buttons">
+            <button id="saveConfig">Save Config</button>
+            <button id="preview">Preview</button>
+            <button id="apply">Upload to Device</button>
+            <button id="resetConfig" class="reset hidden">Reset</button>
+          </div>
+          <div class="status" id="status"></div>
+        </div>
+      </div>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>

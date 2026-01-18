@@ -1,2 +1,5 @@
 .DS_Store
 ._*
+.generated/
+__pycache__/
+*.pyc

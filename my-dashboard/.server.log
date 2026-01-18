@@ -1,0 +1,12 @@
+Traceback (most recent call last):
+  File "/Users/hazam/mnt/inky/projects/my-dashboard/server.py", line 7, in <module>
+    from my_dashboard import load_config, render_dashboard, default_config
+  File "/Users/hazam/mnt/inky/projects/my-dashboard/my_dashboard.py", line 8, in <module>
+    from plugins import TileSpec, layout_tiles, PLUGIN_DEFAULTS, PLUGIN_REGISTRY
+  File "/Users/hazam/mnt/inky/projects/my-dashboard/plugins/__init__.py", line 4, in <module>
+    from .transit import DEFAULT_TRANSIT_CONFIG, TRANSIT_SCHEMA, draw_transit_tile
+  File "/Users/hazam/mnt/inky/projects/my-dashboard/plugins/transit.py", line 3, in <module>
+    from utils import fetch_json, parse_when, text_size, truncate_text
+  File "/Users/hazam/mnt/inky/projects/my-dashboard/utils.py", line 6, in <module>
+    from PIL import Image
+ModuleNotFoundError: No module named 'PIL'

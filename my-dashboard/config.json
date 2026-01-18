@@ -1,0 +1,74 @@
+{
+  "update_interval_minutes": null,
+  "layout": {
+    "cols": 2,
+    "rows": 2,
+    "gutter": 4,
+    "tiles": [
+      {
+        "plugin": "transit",
+        "col": 0,
+        "row": 1,
+        "colspan": 1,
+        "rowspan": 1,
+        "config": {
+          "stops": [
+            "Genslerstr"
+          ],
+          "title_color": "red",
+          "line_bg": "red",
+          "line_text_color": "white",
+          "max_rows": 8,
+          "pad": 12
+        }
+      },
+      {
+        "plugin": "weather",
+        "col": 1,
+        "row": 0,
+        "colspan": 1,
+        "rowspan": 1,
+        "config": {
+          "lat": 52.52,
+          "lon": 13.41,
+          "tz": "Europe/Berlin",
+          "pad": 12
+        }
+      },
+      {
+        "plugin": "transit",
+        "col": 1,
+        "row": 1,
+        "colspan": 1,
+        "rowspan": 1,
+        "config": {
+          "stops": [
+            "Werneuchener Str./Gro\u00dfe-Leege-Str."
+          ],
+          "title_color": "blue",
+          "line_bg": "blue",
+          "line_text_color": "white",
+          "max_rows": 8,
+          "pad": 12
+        }
+      },
+      {
+        "plugin": "transit",
+        "col": 0,
+        "row": 0,
+        "colspan": 1,
+        "rowspan": 1,
+        "config": {
+          "stops": [
+            "Werneuchener Str"
+          ],
+          "title_color": "red",
+          "line_bg": "red",
+          "line_text_color": "white",
+          "max_rows": 8,
+          "pad": 12
+        }
+      }
+    ]
+  }
+}

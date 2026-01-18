@@ -1,0 +1,221 @@
+body {
+  font-family: Arial, sans-serif;
+  margin: 24px;
+  color: #222;
+  background: #f7f7f7;
+}
+.card {
+  border: 1px solid #ccc;
+  padding: 16px;
+  max-width: 1100px;
+  background: #fff;
+}
+.preview-wrap {
+  display: inline-block;
+  width: 100%;
+}
+.safe-viewport {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #ddd;
+  background: #f0f0f0;
+}
+img {
+  display: block;
+  max-width: none;
+  height: auto;
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.preview-tiles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.preview-tile {
+  position: absolute;
+  background-repeat: no-repeat;
+  transition: transform 160ms ease-out, left 160ms ease-out, top 160ms ease-out;
+}
+.preview-tile.dragging {
+  transition: none;
+}
+.overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.overlay.visible {
+  opacity: 1;
+}
+.overlay svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.overlay rect {
+  fill: rgba(0, 120, 255, 0.08);
+  stroke: rgba(0, 120, 255, 0.4);
+  stroke-width: 2;
+  cursor: pointer;
+  transition: fill 120ms ease, stroke 120ms ease;
+}
+.overlay.mode-hover rect,
+.overlay.mode-active-only rect {
+  fill: transparent;
+  stroke: transparent;
+}
+.overlay.mode-hover rect.hovered {
+  fill: rgba(0, 120, 255, 0.18);
+  stroke: rgba(0, 120, 255, 0.8);
+}
+.overlay.mode-active-only rect.active {
+  fill: rgba(0, 120, 255, 0.18);
+  stroke: rgba(0, 120, 255, 0.8);
+}
+.overlay.mode-hover rect.dragging,
+.overlay.mode-active-only rect.dragging {
+  fill: rgba(255, 140, 0, 0.22);
+  stroke: rgba(255, 140, 0, 0.9);
+}
+.overlay.mode-hover rect.drop-target,
+.overlay.mode-active-only rect.drop-target {
+  fill: rgba(0, 120, 255, 0.28);
+  stroke: rgba(0, 120, 255, 1);
+  stroke-dasharray: 6 4;
+}
+.overlay rect.active {
+  fill: rgba(0, 120, 255, 0.18);
+  stroke: rgba(0, 120, 255, 0.8);
+}
+.overlay rect.dragging {
+  fill: rgba(255, 140, 0, 0.22);
+  stroke: rgba(255, 140, 0, 0.9);
+}
+.overlay rect.drop-target {
+  fill: rgba(0, 120, 255, 0.28);
+  stroke: rgba(0, 120, 255, 1);
+  stroke-dasharray: 6 4;
+}
+.preview-tile.dragging {
+  z-index: 5;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+  outline: 2px solid rgba(255, 140, 0, 0.9);
+}
+.overlay.mode-preset rect {
+  fill: rgba(0, 0, 0, 0.6);
+  stroke: rgba(255, 255, 255, 0.95);
+  stroke-width: 3;
+}
+.meta {
+  color: #666;
+  font-size: 12px;
+  margin-top: 8px;
+}
+.row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.preset-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0 12px;
+}
+.preset-btn {
+  border: 1px solid #bbb;
+  background: #fff;
+  padding: 6px 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.preset-btn.active {
+  border-color: #0078ff;
+  box-shadow: 0 0 0 2px rgba(0, 120, 255, 0.2);
+}
+.preset-btn svg {
+  width: 28px;
+  height: 28px;
+}
+.panel {
+  flex: 1 1 320px;
+  border: 1px solid #e0e0e0;
+  padding: 12px;
+  background: #fafafa;
+}
+.tile {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #ddd;
+  cursor: pointer;
+}
+.tile-header {
+  font-weight: bold;
+}
+.tile-options {
+  display: none;
+  margin-top: 6px;
+}
+.tile.open .tile-options {
+  display: block;
+}
+label {
+  display: block;
+  margin: 8px 0 4px;
+  font-size: 12px;
+  color: #444;
+}
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+textarea {
+  width: 100%;
+  min-height: 120px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+}
+.buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.buttons .reset {
+  margin-left: auto;
+}
+.buttons .reset.hidden {
+  display: none;
+}
+.status {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #0a5;
+}
+.array-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.array-item {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.array-item input,
+.array-item select {
+  flex: 1;
+}
+.array-actions {
+  margin-top: 6px;
+}
