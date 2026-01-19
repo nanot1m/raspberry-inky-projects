@@ -79,12 +79,39 @@ body {
   gap: 12px;
   margin: 0 0 16px;
 }
+.status-area {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 200px;
+}
 .panel-actions .buttons {
   margin-top: 0;
 }
 .panel-actions .status {
   margin-top: 0;
   white-space: nowrap;
+}
+.progress {
+  width: 180px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  overflow: hidden;
+  opacity: 0;
+  transform: scaleX(0.96);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+.progress.active {
+  opacity: 1;
+  transform: scaleX(1);
+}
+.progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #f1b65d, var(--warn));
+  transition: width 180ms ease;
 }
 .panel-preview {
   display: flex;
@@ -244,6 +271,12 @@ button {
   font-size: 12px;
   white-space: nowrap;
   transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  box-shadow: none;
+  transform: none;
 }
 button:hover {
   border-color: var(--accent);

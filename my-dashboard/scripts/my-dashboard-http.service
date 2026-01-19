@@ -1,0 +1,15 @@
+[Unit]
+Description=My Dashboard HTTP Server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/hazam/projects/my-dashboard
+ExecStart=/home/hazam/inky-venv/bin/python /home/hazam/projects/my-dashboard/server.py --port 80
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+Restart=on-failure
+User=hazam
+
+[Install]
+WantedBy=multi-user.target

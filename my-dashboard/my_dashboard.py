@@ -1,4 +1,5 @@
 from datetime import datetime
+import time
 import math
 from io import BytesIO
 from pathlib import Path
@@ -15,17 +16,125 @@ try:
 except Exception:
     ImageCms = None
 
-inky = auto()
-w, h = inky.resolution
+EXPECTED_W = 800
+EXPECTED_H = 480
+
+
+class PreviewInky:
+    BLACK = 0
+    WHITE = 1
+    GREEN = 2
+    BLUE = 3
+    RED = 4
+    YELLOW = 5
+    ORANGE = 6
+
+    def __init__(self, resolution):
+        self.resolution = resolution
+
+def get_inky(upload):
+    if not upload:
+        return PreviewInky(resolution=(EXPECTED_W, EXPECTED_H))
+    try:
+        inky = auto()
+        cs_pin = getattr(inky, "cs_pin", None)
+        if cs_pin is not None:
+            try:
+                import gpiod
+
+                info = gpiod.Chip("/dev/gpiochip0").get_line_info(cs_pin)
+                if info.used and info.consumer == "spi0 CS0":
+                    from inky.inky_ac073tc1a import Inky as InkyImpression
+                    import gpiodevice
+                    from gpiod.line import Direction, Value, Edge
+                    from datetime import timedelta
+
+                    class HardwareCSInky(InkyImpression):
+                        def _spi_write(self, dc, values):
+                            self._gpio.set_value(self.dc_pin, Value.ACTIVE if dc else Value.INACTIVE)
+                            if isinstance(values, str):
+                                values = [ord(c) for c in values]
+                            for byte_value in values:
+                                self._spi_bus.xfer([byte_value])
+
+                        def setup(self):
+                            if not self._gpio_setup:
+                                if self._gpio is None:
+                                    gpiochip = gpiodevice.find_chip_by_platform()
+                                    gpiodevice.friendly_errors = True
+                                    if gpiodevice.check_pins_available(gpiochip, {
+                                        "Data/Command": self.dc_pin,
+                                        "Reset": self.reset_pin,
+                                        "Busy": self.busy_pin,
+                                    }):
+                                        self.dc_pin = gpiochip.line_offset_from_id(self.dc_pin)
+                                        self.reset_pin = gpiochip.line_offset_from_id(self.reset_pin)
+                                        self.busy_pin = gpiochip.line_offset_from_id(self.busy_pin)
+                                        self._gpio = gpiochip.request_lines(consumer="inky", config={
+                                            self.dc_pin: gpiod.LineSettings(direction=Direction.OUTPUT, output_value=Value.INACTIVE),
+                                            self.reset_pin: gpiod.LineSettings(direction=Direction.OUTPUT, output_value=Value.ACTIVE),
+                                            self.busy_pin: gpiod.LineSettings(direction=Direction.INPUT, edge_detection=Edge.RISING, debounce_period=timedelta(milliseconds=10)),
+                                        })
+
+                                if self._spi_bus is None:
+                                    import spidev
+                                    self._spi_bus = spidev.SpiDev()
+
+                                self._spi_bus.open(0, self.cs_channel)
+                                try:
+                                    self._spi_bus.no_cs = False
+                                except OSError:
+                                    pass
+                                self._spi_bus.max_speed_hz = 5000000
+
+                                self._gpio_setup = True
+
+                            self._gpio.set_value(self.reset_pin, Value.INACTIVE)
+                            time.sleep(0.1)
+                            self._gpio.set_value(self.reset_pin, Value.ACTIVE)
+                            time.sleep(0.1)
+
+                            self._gpio.set_value(self.reset_pin, Value.INACTIVE)
+                            time.sleep(0.1)
+                            self._gpio.set_value(self.reset_pin, Value.ACTIVE)
+
+                            self._busy_wait(1.0)
+
+                            self._send_command(0x00, [0x49, 0x55, 0x20, 0x08, 0x09, 0x18])
+                            self._send_command(0x01, [0x3F, 0x00, 0x32, 0x2A, 0x0E, 0x2A])
+                            self._send_command(0x03, [0x5F, 0x69])
+                            self._send_command(0x04, [0x00, 0x54, 0x00, 0x44])
+                            self._send_command(0x06, [0x40, 0x1F, 0x1F, 0x2C])
+                            self._send_command(0x07, [0x6F, 0x1F, 0x16, 0x25])
+                            self._send_command(0x08, [0x6F, 0x1F, 0x1F, 0x22])
+                            self._send_command(0x0B, [0x00, 0x04])
+                            self._send_command(0x30, [0x02])
+                            self._send_command(0x41, [0x00])
+                            self._send_command(0x50, [0x3F])
+                            self._send_command(0x60, [0x02, 0x00])
+                            self._send_command(0x61, [0x03, 0x20, 0x01, 0xE0])
+                            self._send_command(0x82, [0x1E])
+                            self._send_command(0x84, [0x00])
+                            self._send_command(0x86, [0x00])
+                            self._send_command(0xE3, [0x2F])
+                            self._send_command(0xE0, [0x00])
+                            self._send_command(0xE5, [0x00])
+
+                    return HardwareCSInky(resolution=(EXPECTED_W, EXPECTED_H), colour="multi")
+            except Exception:
+                pass
+        return inky
+    except RuntimeError:
+        from inky.inky_e673 import Inky
+
+        return Inky(resolution=(EXPECTED_W, EXPECTED_H), colour="multi")
+
 
 # Safe area margins from calibrate_safe_area.py
 M_LEFT = 60
 M_TOP = 35
 M_RIGHT = 55
 M_BOTTOM = 10
-
-EXPECTED_W = 800
-EXPECTED_H = 480
 
 TRAM_REQUESTS = ["Genslerstr", "Werneuchener Str"]
 BUS_REQUESTS = ["Werneuchener Str./Große-Leege-Str."]
@@ -350,6 +459,8 @@ def render_dashboard(config=None, output_path=None, upload=False):
     cfg = config or default_config()
     layout = cfg.get("layout", {})
 
+    inky = get_inky(upload)
+    w, h = inky.resolution
     img = Image.new("P", (w, h))
     img.putpalette(PALETTE_IMAGE.getpalette())
     draw = ImageDraw.Draw(img)
@@ -412,6 +523,7 @@ def render_dashboard(config=None, output_path=None, upload=False):
     border_style = str(border_cfg.get("style", "solid")).lower()
     if border_style not in ("solid", "dotted"):
         border_style = "solid"
+    orange = getattr(inky, "ORANGE", inky.YELLOW)
     color_map = {
         "black": inky.BLACK,
         "white": inky.WHITE,
@@ -419,7 +531,7 @@ def render_dashboard(config=None, output_path=None, upload=False):
         "blue": inky.BLUE,
         "red": inky.RED,
         "yellow": inky.YELLOW,
-        "orange": inky.ORANGE,
+        "orange": orange,
     }
     border_color = color_map.get(str(border_cfg.get("color", "black")).lower(), inky.BLACK)
 

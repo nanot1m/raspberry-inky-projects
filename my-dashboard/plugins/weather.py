@@ -262,10 +262,12 @@ def draw_weather_icon(img, draw, x, y, size, code, inky):
         for i in range(3):
             draw.line((x + 6, fog_y + i * 10, x + size - 6, fog_y + i * 10), fill=color, width=2)
 
+    sun_color = getattr(inky, "ORANGE", inky.YELLOW)
+
     if code in (0, 1):
-        draw_sun(inky.RED)
+        draw_sun(sun_color)
     elif code in (2, 3):
-        draw_sun(inky.RED)
+        draw_sun(sun_color)
         draw_cloud(inky.BLACK)
     elif code in (45, 48):
         draw_cloud(inky.BLACK)

@@ -1,4 +1,7 @@
 const statusEl = document.getElementById("status");
+const applyProgressEl = document.getElementById("applyProgress");
+const applyProgressBarEl = document.getElementById("applyProgressBar");
+const applyBtn = document.getElementById("apply");
 const tilesEl = document.getElementById("tiles");
 const safeViewportEl = document.getElementById("safeViewport");
 const resetBtn = document.getElementById("resetConfig");
@@ -35,6 +38,7 @@ let isPreviewHover = false;
 let presetPreview = null;
 let presetPreviewTimer = null;
 let tileAnimations = new Map();
+let applyStatusTimer = null;
 
 const initialSafeWidth = DEFAULT_W - SAFE.left - SAFE.right;
 const initialSafeHeight = DEFAULT_H - SAFE.top - SAFE.bottom;
@@ -57,6 +61,27 @@ const setStatus = (msg, ok = true) => {
   statusEl.style.color = ok ? "#0a5" : "#c00";
 };
 
+const setUploading = (isUploading) => {
+  applyBtn.disabled = isUploading;
+  appState.uploading = isUploading;
+};
+
+const setProgress = (percent, message = null) => {
+  if (message) {
+    setStatus(message);
+  }
+  if (percent == null) {
+    applyProgressEl.classList.remove("active");
+    applyProgressEl.setAttribute("aria-hidden", "true");
+    applyProgressBarEl.style.width = "0%";
+    return;
+  }
+  const bounded = Math.max(0, Math.min(100, percent));
+  applyProgressEl.classList.add("active");
+  applyProgressEl.setAttribute("aria-hidden", "false");
+  applyProgressBarEl.style.width = `${bounded}%`;
+};
+
 const fetchJson = async (url, options = {}) => {
   const res = await fetch(url, {
     headers: { "Content-Type": "application/json" },
@@ -75,9 +100,11 @@ const loadPreviewImage = (src) => new Promise((resolve, reject) => {
   image.src = src;
 });
 
-const requestPreview = async (config, successMessage = "Preview updated") => {
+const requestPreview = async (config, successMessage = "Preview updated", showStatus = true) => {
   if (appState.previewRequest) return appState.previewRequest;
-  setStatus("Generating preview...");
+  if (showStatus) {
+    setStatus("Generating preview...");
+  }
   appState.previewRequest = (async () => {
     try {
       const res = await fetchJson("/api/preview", {
@@ -89,7 +116,9 @@ const requestPreview = async (config, successMessage = "Preview updated") => {
       previewReady = true;
       updateSafeViewport();
       assignPreviewSlices(currentTiles);
-      setStatus(successMessage);
+      if (showStatus && successMessage) {
+        setStatus(successMessage);
+      }
       return res;
     } catch (err) {
       setStatus(err.message, false);
@@ -99,6 +128,116 @@ const requestPreview = async (config, successMessage = "Preview updated") => {
     }
   })();
   return appState.previewRequest;
+};
+
+const encodeConfig = (config) => {
+  const json = JSON.stringify(config);
+  const encoded = btoa(unescape(encodeURIComponent(json)));
+  return encoded.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+};
+
+const applyWithProgress = async (config) => {
+  if (typeof EventSource === "undefined") {
+    await fetchJson("/api/apply", {
+      method: "POST",
+      body: JSON.stringify(config),
+    });
+    await refreshApplyStatus();
+    return;
+  }
+
+  return new Promise((resolve, reject) => {
+    const payload = encodeConfig(config);
+    const source = new EventSource(`/api/apply/stream?config=${encodeURIComponent(payload)}`);
+    let finished = false;
+
+    const finish = (ok, message) => {
+      if (finished) return;
+      finished = true;
+      source.close();
+      if (ok) {
+        setProgress(100, message || "Upload complete");
+        setTimeout(() => setProgress(null), 1200);
+        resolve();
+      } else {
+        setProgress(null);
+        setStatus(message || "Upload failed", false);
+        reject(new Error(message || "Upload failed"));
+      }
+    };
+
+    source.addEventListener("progress", (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        setProgress(data.percent ?? 0, data.message || "Uploading...");
+      } catch (err) {
+        setProgress(10, "Uploading...");
+      }
+    });
+
+    source.addEventListener("done", (event) => {
+      let message = "Uploaded to device";
+      try {
+        const data = JSON.parse(event.data);
+        message = data.message || message;
+      } catch (err) {
+        // ignore
+      }
+      finish(true, message);
+    });
+
+    source.addEventListener("failed", (event) => {
+      let message = "Upload failed";
+      try {
+        const data = JSON.parse(event.data);
+        message = data.message || message;
+      } catch (err) {
+        // ignore
+      }
+      finish(false, message);
+    });
+
+    source.addEventListener("error", () => {
+      finish(false, "Upload failed");
+    });
+  });
+};
+
+const updateApplyStatus = (status) => {
+  if (status.running) {
+    setUploading(true);
+    setProgress(status.percent ?? 20, status.message || "Uploading...");
+    if (!applyStatusTimer) {
+      applyStatusTimer = setInterval(refreshApplyStatus, 2000);
+    }
+    return;
+  }
+
+  if (applyStatusTimer) {
+    clearInterval(applyStatusTimer);
+    applyStatusTimer = null;
+  }
+  if (appState.uploading) {
+    if (status.error) {
+      setStatus(status.error, false);
+      setProgress(null);
+    } else {
+      setProgress(100, "Upload complete");
+      setTimeout(() => setProgress(null), 1200);
+    }
+  } else {
+    setProgress(null);
+  }
+  setUploading(false);
+};
+
+const refreshApplyStatus = async () => {
+  try {
+    const status = await fetchJson("/api/apply/status");
+    updateApplyStatus(status);
+  } catch (err) {
+    // ignore
+  }
 };
 
 const assignPreviewSlices = (tiles, layoutOverride = null) => {
@@ -735,6 +874,7 @@ const init = async () => {
   if (rafId === null) {
     rafId = requestAnimationFrame(drawLoop);
   }
+  refreshApplyStatus();
   document.querySelectorAll(".preset-btn").forEach((btn) => {
     btn.addEventListener("click", () => applyPreset(btn.dataset.preset, pluginMeta));
     btn.addEventListener("mouseenter", () => showPresetPreview(btn.dataset.preset));
@@ -861,7 +1001,7 @@ document.getElementById("saveConfig").addEventListener("click", async () => {
 document.getElementById("preview").addEventListener("click", async () => {
   try {
     const config = collectConfig();
-    await requestPreview(config, "Preview generated");
+    await requestPreview(config, "Preview generated", true);
     updateResetState();
   } catch (e) {
     setStatus(e.message, false);
@@ -871,15 +1011,15 @@ document.getElementById("preview").addEventListener("click", async () => {
 document.getElementById("apply").addEventListener("click", async () => {
   try {
     const config = collectConfig();
-    await fetchJson("/api/apply", {
-      method: "POST",
-      body: JSON.stringify(config),
-    });
-    setStatus("Uploaded to device");
-    requestPreview(config, "Preview updated").catch(() => {});
+    setUploading(true);
+    setProgress(5, "Preparing upload...");
+    await applyWithProgress(config);
+    requestPreview(config, null, false).catch(() => {});
     updateResetState();
   } catch (e) {
     setStatus(e.message, false);
+  } finally {
+    setUploading(false);
   }
 });
 

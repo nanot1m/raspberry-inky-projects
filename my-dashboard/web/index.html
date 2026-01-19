@@ -16,7 +16,12 @@
           <button id="apply">Upload to Device</button>
           <button id="resetConfig" class="reset hidden">Reset</button>
         </div>
-        <div class="status" id="status"></div>
+        <div class="status-area">
+          <div class="status" id="status"></div>
+          <div class="progress" id="applyProgress" aria-hidden="true">
+            <div class="progress-bar" id="applyProgressBar"></div>
+          </div>
+        </div>
       </div>
       <div class="row">
         <div class="panel panel-preview">
