@@ -141,6 +141,8 @@ BUS_REQUESTS = ["Werneuchener Str./Große-Leege-Str."]
 
 PHOTO_DIR = Path(__file__).resolve().parent / "photos"
 CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config.default.json"
+CONFIG_VERSION = 1
 
 
 def temp_with_degree_width(draw, temp_value, font):
@@ -332,8 +334,21 @@ def draw_temp_graph(draw, x, y, width, height, hourly, fonts, inky):
         draw.text((hx - label_w // 2, bottom + 2), label, inky.BLACK, font=fonts[3])
 
 
+def normalize_config(cfg):
+    if not isinstance(cfg, dict):
+        return default_config()
+    if "version" not in cfg:
+        cfg = {**cfg, "version": CONFIG_VERSION}
+    return cfg
+
+
 def default_config():
-    return {
+    if DEFAULT_CONFIG_PATH.exists():
+        try:
+            return normalize_config(json.loads(DEFAULT_CONFIG_PATH.read_text()))
+        except Exception:
+            pass
+    return normalize_config({
         "update_interval_minutes": 15,
         "update_schedule": "*/15 * * * *",
         "layout": {
@@ -359,7 +374,6 @@ def default_config():
                         "title_color": "red",
                         "line_bg": "red",
                         "line_text_color": "white",
-                        "max_rows": 8,
                     },
                 },
                 {
@@ -382,19 +396,18 @@ def default_config():
                         "title_color": "blue",
                         "line_bg": "blue",
                         "line_text_color": "white",
-                        "max_rows": 8,
                     },
                 },
             ],
-        }
-    }
+        },
+    })
 
 
 def load_config():
     if not CONFIG_PATH.exists():
         return default_config()
     try:
-        return json.loads(CONFIG_PATH.read_text())
+        return normalize_config(json.loads(CONFIG_PATH.read_text()))
     except Exception:
         return default_config()
 

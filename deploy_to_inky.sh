@@ -3,10 +3,10 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-ssh inky 'mkdir -p /home/hazam/projects/my-dashboard'
+ssh hazam-inky.local 'mkdir -p /home/hazam/projects/my-dashboard'
 "$repo_root/sync_to_inky.sh"
 
-ssh inky <<'EOF'
+ssh hazam-inky.local <<'EOF'
 sudo cp /home/hazam/projects/my-dashboard/scripts/my-dashboard-http.service \
   /etc/systemd/system/my-dashboard-http.service
 sudo systemctl daemon-reload

@@ -3,3 +3,4 @@
 .generated/
 __pycache__/
 *.pyc
+my-dashboard/config.json

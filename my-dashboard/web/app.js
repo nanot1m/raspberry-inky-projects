@@ -724,6 +724,7 @@ const collectConfig = () => {
     });
   });
   return {
+    version: currentConfig?.version ?? CONFIG_VERSION,
     update_interval_minutes: scheduleInput.value === "" ? null : Number(scheduleInput.value),
     layout: {
       cols: currentLayout.cols,
@@ -775,8 +776,18 @@ const PRESETS = {
 
 let currentLayout = { cols: 2, rows: 2 };
 let currentConfig = null;
+const CONFIG_VERSION = 1;
 
 const normalizeConfig = (cfg) => JSON.stringify(cfg || {});
+
+const commitActiveTileConfig = () => {
+  if (activeTileIndex === null) return;
+  if (!currentTiles[activeTileIndex]) return;
+  currentTiles[activeTileIndex] = {
+    ...currentTiles[activeTileIndex],
+    config: readSelectedTileConfig(),
+  };
+};
 
 const updateResetState = () => {
   if (!currentConfig) return;
@@ -882,8 +893,15 @@ const init = async () => {
   });
   tilesEl.addEventListener("input", updateResetState);
   tilesEl.addEventListener("change", updateResetState);
+  tilesEl.addEventListener("input", () => {
+    commitActiveTileConfig();
+  });
+  tilesEl.addEventListener("change", () => {
+    commitActiveTileConfig();
+  });
   backToLayoutBtn.addEventListener("click", () => {
     if (activeTileIndex === null) return;
+    commitActiveTileConfig();
     activeTileIndex = null;
     renderTileConfig(currentTiles, currentPluginMeta);
   });
@@ -908,6 +926,7 @@ const init = async () => {
     const point = getCanvasPoint(event);
     const hit = findTileIndex(point);
     if (hit === null) return;
+    commitActiveTileConfig();
     isDragging = true;
     dragSourceIndex = hit;
     dragTargetIndex = hit;
@@ -1043,13 +1062,6 @@ resetBtn.addEventListener("click", async () => {
 
 window.addEventListener("resize", () => {
   updateSafeViewport();
-});
-document.addEventListener("click", (event) => {
-  const inPreview = safeViewportEl.contains(event.target);
-  if (inPreview || layoutPanelEl.contains(event.target) || configPanelEl.contains(event.target)) return;
-  if (activeTileIndex === null) return;
-  activeTileIndex = null;
-  renderTileConfig(currentTiles, currentPluginMeta);
 });
 if (!appState.initialized) {
   appState.initialized = true;

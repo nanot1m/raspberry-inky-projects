@@ -7,7 +7,7 @@ DEFAULT_TRANSIT_CONFIG = {
     "title_color": "red",
     "line_bg": "red",
     "line_text_color": "white",
-    "max_rows": 8,
+    "max_rows_per_group": 4,
     "pad": 12,
 }
 
@@ -16,7 +16,7 @@ TRANSIT_SCHEMA = {
     "title_color": {"type": "enum", "label": "Title Color", "options": ["red", "blue", "black"]},
     "line_bg": {"type": "enum", "label": "Line Badge", "options": ["red", "blue", "black"]},
     "line_text_color": {"type": "enum", "label": "Line Text", "options": ["white", "black"]},
-    "max_rows": {"type": "number", "label": "Max Rows", "min": 1, "max": 12},
+    "max_rows_per_group": {"type": "number", "label": "Max Rows Per Direction", "min": 1, "max": 12},
     "pad": {"type": "number", "label": "Padding", "min": 0, "max": 30},
 }
 
@@ -44,32 +44,29 @@ def get_tram_departures(stop_query, line_filter=None):
     departures = fetch_json(dep_url, cache_ttl=60)
     if not departures:
         label = line_filter or "Tram"
-        return stop_name, [f"No {label} data"]
+        return stop_name, [(f"No {label} data", "", "")]
     if isinstance(departures, dict):
         departures = departures.get("departures", [])
     if not isinstance(departures, list):
         label = line_filter or "Tram"
-        return stop_name, [f"No {label} data"]
-    lines = []
+        return stop_name, [(f"No {label} data", "", "")]
+    rows = []
     for dep in departures:
         line = dep.get("line", {}).get("name", "Tram")
         if line_filter and line != line_filter:
             continue
         direction = dep.get("direction", "")
         when = parse_when(dep.get("when") or dep.get("plannedWhen"))
-        if direction:
-            lines.append(f"{when} {line} {direction}")
-        else:
-            lines.append(f"{when} {line}")
-        if len(lines) >= 8:
+        rows.append((when, line, direction))
+        if len(rows) >= 16:
             break
-    if not lines:
+    if not rows:
         label = line_filter or "Tram"
-        lines.append(f"No {label} departures")
-    return stop_name, lines
+        rows.append((f"No {label} departures", "", ""))
+    return stop_name, rows
 
 
-def draw_tram_table(draw, x, y, width, title, rows, fonts, inky, title_color, line_bg, line_text_color, max_rows=5):
+def draw_tram_table(draw, x, y, width, title, rows, fonts, inky, title_color, line_bg, line_text_color):
     font_title, font_sub, font_body, font_meta = fonts
     title_text = truncate_text(draw, title, width, font=font_body)
     draw.text((x, y), title_text, title_color, font=font_body)
@@ -84,11 +81,29 @@ def draw_tram_table(draw, x, y, width, title, rows, fonts, inky, title_color, li
     draw.line((table_left, y, table_right, y), fill=inky.BLACK)
     y += 8
 
+    return y, (table_left, table_right, col_time, col_line, col_dir)
+
+
+def abbreviate_berlin_destination(text):
+    if not text:
+        return text
+    abbreviations = {
+        "Landsberger Allee": "Land. Allee",
+    }
+    for full, short in abbreviations.items():
+        if full in text:
+            text = text.replace(full, short)
+    return text
+
+
+def draw_tram_rows(draw, y, columns, rows, fonts, inky, line_bg, line_text_color, max_rows):
+    table_left, table_right, col_time, col_line, col_dir = columns
+    _, _, font_body, _ = fonts
     if not rows:
         draw.text((table_left, y), "No departures", inky.BLACK, font=font_body)
         return y + 28
-
-    for when, line, direction in rows[:max_rows]:
+    count = 0
+    for when, line, direction in rows:
         draw.text((table_left, y), when, inky.BLACK, font=font_body)
         line_x = table_left + col_time
         line_text = truncate_text(draw, line, col_line - 8, font=font_body)
@@ -96,17 +111,21 @@ def draw_tram_table(draw, x, y, width, title, rows, fonts, inky, title_color, li
         box_w = min(col_line - 4, line_w + 10)
         box_h = line_h + 4
         box_y = y + 2
-        draw.rectangle(
-            (line_x, box_y, line_x + box_w, box_y + box_h),
-            fill=line_bg,
-            outline=line_bg,
-        )
-        draw.text((line_x + 5, y), line_text, line_text_color, font=font_body)
-        dir_text = truncate_text(draw, direction, col_dir, font=font_body)
+        if line_text:
+            draw.rectangle(
+                (line_x, box_y, line_x + box_w, box_y + box_h),
+                fill=line_bg,
+                outline=line_bg,
+            )
+            draw.text((line_x + 5, y), line_text, line_text_color, font=font_body)
+        dir_text = abbreviate_berlin_destination(direction)
+        dir_text = truncate_text(draw, dir_text, col_dir, font=font_body)
         draw.text((table_left + col_time + col_line, y), dir_text, inky.BLACK, font=font_body)
         y += 20
-
-    return y + 10
+        count += 1
+        if count >= max_rows:
+            break
+    return y
 
 
 def draw_transit_tile(ctx, bbox, config):
@@ -132,22 +151,29 @@ def draw_transit_tile(ctx, bbox, config):
     title_color = getattr(inky, str(config.get("title_color", "RED")).upper(), inky.RED)
     line_bg = getattr(inky, str(config.get("line_bg", "RED")).upper(), inky.RED)
     line_text_color = getattr(inky, str(config.get("line_text_color", "WHITE")).upper(), inky.WHITE)
-    max_rows = config.get("max_rows", 8)
+    max_rows = DEFAULT_TRANSIT_CONFIG["max_rows_per_group"]
 
     for stop_query in stops:
-        stop_name, lines = get_tram_departures(stop_query)
-        rows = []
-        for entry in lines:
-            parts = entry.split(" ", 2)
-            if len(parts) == 3:
-                when, line, direction = parts
-            elif len(parts) == 2:
-                when, line = parts
-                direction = ""
-            else:
-                when, line, direction = "--:--", "", ""
-            rows.append((when, line, direction))
-        y = draw_tram_table(
+        stop_name, rows = get_tram_departures(stop_query)
+        max_rows_per_group = config.get("max_rows_per_group") or max_rows
+        try:
+            max_rows_per_group = int(max_rows_per_group)
+        except (TypeError, ValueError):
+            max_rows_per_group = max_rows
+        max_rows_per_group = max(1, min(12, max_rows_per_group))
+
+        groups = []
+        group_index = {}
+        for when, line, direction in rows:
+            key = direction or ""
+            if key not in group_index:
+                if len(groups) >= 2:
+                    continue
+                group_index[key] = len(groups)
+                groups.append([])
+            groups[group_index[key]].append((when, line, direction))
+
+        y, columns = draw_tram_table(
             draw,
             x,
             y,
@@ -159,5 +185,21 @@ def draw_transit_tile(ctx, bbox, config):
             title_color,
             line_bg,
             line_text_color,
-            max_rows=max_rows,
         )
+        if not groups:
+            groups = [rows]
+        for idx, group_rows in enumerate(groups):
+            if idx > 0:
+                y += 4
+            y = draw_tram_rows(
+                draw,
+                y,
+                columns,
+                group_rows,
+                (font_title, font_sub, font_body, font_meta),
+                inky,
+                line_bg,
+                line_text_color,
+                max_rows_per_group,
+            )
+        y += 10

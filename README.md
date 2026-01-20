@@ -9,12 +9,13 @@
 
 2. Install system packages:
    - `sudo apt-get update`
-   - `sudo apt-get install -y python3 python3-venv python3-pip git rsync`
+   - `sudo apt-get install -y python3 python3-venv python3-pip git rsync libcairo2 libpango-1.0-0 libgdk-pixbuf-2.0-0 libffi-dev`
 
-3. Create the virtual environment and install the Inky library:
+3. Create the virtual environment and install Python dependencies:
    - `python3 -m venv /home/hazam/inky-venv`
    - `/home/hazam/inky-venv/bin/pip install --upgrade pip`
-   - `/home/hazam/inky-venv/bin/pip install inky[rpi]`
+   - `/home/hazam/inky-venv/bin/pip install -r /home/hazam/projects/my-dashboard/requirements.txt`
+   - Or run `my-dashboard/scripts/install_deps.sh` to do steps 2-3 in one shot.
 
 4. Configure SSH host alias on your workstation (`~/.ssh/config`):
    - `Host inky`
@@ -23,6 +24,12 @@
 
 5. Sync the dashboard code to the Pi:
    - `./sync_to_inky.sh`
+   - To overwrite the runtime config on the Pi: `SYNC_CONFIG=1 ./sync_to_inky.sh`
+
+## Config files
+
+- `my-dashboard/config.default.json` is the tracked default config.
+- `my-dashboard/config.json` is the local runtime config (gitignored, saved by the UI).
 
 ## Auto-start the HTTP server
 

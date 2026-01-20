@@ -12,7 +12,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from my_dashboard import load_config, render_dashboard, default_config
+from my_dashboard import load_config, render_dashboard, default_config, normalize_config, CONFIG_VERSION
 from plugins import PLUGIN_DEFAULTS, PLUGIN_SCHEMAS, PLUGIN_NAMES
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -236,6 +236,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             if payload is None:
                 return self._send_json({"error": "Invalid JSON"}, status=400)
             try:
+                payload = normalize_config(payload or {})
+                payload.setdefault("version", CONFIG_VERSION)
                 CONFIG_PATH.write_text(json.dumps(payload, indent=2))
                 minutes = payload.get("update_interval_minutes")
                 schedule = payload.get("update_schedule")
