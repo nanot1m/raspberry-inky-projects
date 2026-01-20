@@ -31,6 +31,30 @@
 - `my-dashboard/config.default.json` is the tracked default config.
 - `my-dashboard/config.json` is the local runtime config (gitignored, saved by the UI).
 
+### Dithering options
+
+You can enable dithering for the layout background and borders in `config.json`:
+
+```json
+{
+  "layout": {
+    "background": {
+      "color": "white",
+      "dither": true,
+      "dither_color": "blue",
+      "dither_step": 2,
+      "dither_ratio": 0.5
+    },
+    "border": {
+      "dither": true,
+      "dither_color": "white",
+      "dither_step": 2,
+      "dither_ratio": 0.5
+    }
+  }
+}
+```
+
 ## Auto-start the HTTP server
 
 Create the service on the Pi at `/etc/systemd/system/my-dashboard-http.service`:

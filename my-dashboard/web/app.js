@@ -10,6 +10,15 @@ const borderWidthInput = document.getElementById("borderWidth");
 const borderRadiusInput = document.getElementById("borderRadius");
 const borderStyleSelect = document.getElementById("borderStyle");
 const borderColorSelect = document.getElementById("borderColor");
+const borderDitherInput = document.getElementById("borderDither");
+const borderDitherColorSelect = document.getElementById("borderDitherColor");
+const borderDitherStepInput = document.getElementById("borderDitherStep");
+const borderDitherRatioInput = document.getElementById("borderDitherRatio");
+const backgroundColorSelect = document.getElementById("backgroundColor");
+const backgroundDitherInput = document.getElementById("backgroundDither");
+const backgroundDitherColorSelect = document.getElementById("backgroundDitherColor");
+const backgroundDitherStepInput = document.getElementById("backgroundDitherStep");
+const backgroundDitherRatioInput = document.getElementById("backgroundDitherRatio");
 const layoutPanelEl = document.getElementById("layoutPanel");
 const configPanelEl = document.getElementById("configPanel");
 const backToLayoutBtn = document.getElementById("backToLayout");
@@ -735,6 +744,17 @@ const collectConfig = () => {
         radius: borderRadiusInput.value === "" ? 0 : Number(borderRadiusInput.value),
         style: borderStyleSelect.value,
         color: borderColorSelect.value,
+        dither: borderDitherInput.checked,
+        dither_color: borderDitherColorSelect.value,
+        dither_step: borderDitherStepInput.value === "" ? 2 : Number(borderDitherStepInput.value),
+        dither_ratio: borderDitherRatioInput.value === "" ? 0.5 : Number(borderDitherRatioInput.value),
+      },
+      background: {
+        color: backgroundColorSelect.value,
+        dither: backgroundDitherInput.checked,
+        dither_color: backgroundDitherColorSelect.value,
+        dither_step: backgroundDitherStepInput.value === "" ? 2 : Number(backgroundDitherStepInput.value),
+        dither_ratio: backgroundDitherRatioInput.value === "" ? 0.5 : Number(backgroundDitherRatioInput.value),
       },
       tiles,
     },
@@ -875,6 +895,15 @@ const init = async () => {
   borderRadiusInput.value = config.layout.border?.radius ?? 0;
   borderStyleSelect.value = config.layout.border?.style ?? "solid";
   borderColorSelect.value = config.layout.border?.color ?? "black";
+  borderDitherInput.checked = Boolean(config.layout.border?.dither);
+  borderDitherColorSelect.value = config.layout.border?.dither_color ?? "white";
+  borderDitherStepInput.value = config.layout.border?.dither_step ?? 2;
+  borderDitherRatioInput.value = config.layout.border?.dither_ratio ?? 0.5;
+  backgroundColorSelect.value = config.layout.background?.color ?? "white";
+  backgroundDitherInput.checked = Boolean(config.layout.background?.dither);
+  backgroundDitherColorSelect.value = config.layout.background?.dither_color ?? "blue";
+  backgroundDitherStepInput.value = config.layout.background?.dither_step ?? 2;
+  backgroundDitherRatioInput.value = config.layout.background?.dither_ratio ?? 0.5;
   if (config.update_interval_minutes != null) {
     scheduleInput.value = String(config.update_interval_minutes);
   } else {
@@ -913,6 +942,19 @@ const init = async () => {
   borderRadiusInput.addEventListener("change", updateResetState);
   borderStyleSelect.addEventListener("change", updateResetState);
   borderColorSelect.addEventListener("change", updateResetState);
+  borderDitherInput.addEventListener("change", updateResetState);
+  borderDitherColorSelect.addEventListener("change", updateResetState);
+  borderDitherStepInput.addEventListener("input", updateResetState);
+  borderDitherStepInput.addEventListener("change", updateResetState);
+  borderDitherRatioInput.addEventListener("input", updateResetState);
+  borderDitherRatioInput.addEventListener("change", updateResetState);
+  backgroundColorSelect.addEventListener("change", updateResetState);
+  backgroundDitherInput.addEventListener("change", updateResetState);
+  backgroundDitherColorSelect.addEventListener("change", updateResetState);
+  backgroundDitherStepInput.addEventListener("input", updateResetState);
+  backgroundDitherStepInput.addEventListener("change", updateResetState);
+  backgroundDitherRatioInput.addEventListener("input", updateResetState);
+  backgroundDitherRatioInput.addEventListener("change", updateResetState);
   scheduleInput.addEventListener("input", updateResetState);
   scheduleInput.addEventListener("change", updateResetState);
   canvas.addEventListener("pointerenter", () => {
@@ -1051,6 +1093,15 @@ resetBtn.addEventListener("click", async () => {
   borderRadiusInput.value = currentConfig.layout.border?.radius ?? 0;
   borderStyleSelect.value = currentConfig.layout.border?.style ?? "solid";
   borderColorSelect.value = currentConfig.layout.border?.color ?? "black";
+  borderDitherInput.checked = Boolean(currentConfig.layout.border?.dither);
+  borderDitherColorSelect.value = currentConfig.layout.border?.dither_color ?? "white";
+  borderDitherStepInput.value = currentConfig.layout.border?.dither_step ?? 2;
+  borderDitherRatioInput.value = currentConfig.layout.border?.dither_ratio ?? 0.5;
+  backgroundColorSelect.value = currentConfig.layout.background?.color ?? "white";
+  backgroundDitherInput.checked = Boolean(currentConfig.layout.background?.dither);
+  backgroundDitherColorSelect.value = currentConfig.layout.background?.dither_color ?? "blue";
+  backgroundDitherStepInput.value = currentConfig.layout.background?.dither_step ?? 2;
+  backgroundDitherRatioInput.value = currentConfig.layout.background?.dither_ratio ?? 0.5;
   if (currentConfig.update_interval_minutes != null) {
     scheduleInput.value = String(currentConfig.update_interval_minutes);
   } else {

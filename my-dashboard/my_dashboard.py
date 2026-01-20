@@ -7,7 +7,7 @@ from pathlib import Path
 import json
 
 from plugins import TileSpec, layout_tiles, PLUGIN_DEFAULTS, PLUGIN_REGISTRY
-from utils import PALETTE_IMAGE, text_size, truncate_text
+from utils import PALETTE_COLORS, PALETTE_IMAGE, text_size, truncate_text
 
 from inky.auto import auto
 from PIL import Image, ImageDraw, ImageFont
@@ -211,6 +211,47 @@ def draw_rounded_rect_outline(draw, bbox, radius, color, width=1):
         draw.line((ox1, oy0 + r, ox1, oy1 - r), fill=color)
 
 
+def create_dither_pattern(size, color_a, color_b, step=2, ratio=0.5):
+    width, height = size
+    pattern = Image.new("RGB", size, color_a)
+    pixels = pattern.load()
+    block = max(1, int(step))
+    ratio = max(0.0, min(1.0, float(ratio)))
+    bayer = (
+        (0, 8, 2, 10),
+        (12, 4, 14, 6),
+        (3, 11, 1, 9),
+        (15, 7, 13, 5),
+    )
+    for y in range(height):
+        for x in range(width):
+            tx = (x // block) % 4
+            ty = (y // block) % 4
+            threshold = bayer[ty][tx] / 16.0
+            if threshold < ratio:
+                pixels[x, y] = color_b
+    return pattern.quantize(palette=PALETTE_IMAGE, dither=Image.NONE)
+
+
+def apply_dither_rect(img, bbox, color_a, color_b, step=2, ratio=0.5):
+    x0, y0, x1, y1 = bbox
+    width = max(1, x1 - x0 + 1)
+    height = max(1, y1 - y0 + 1)
+    pattern = create_dither_pattern((width, height), color_a, color_b, step=step, ratio=ratio)
+    img.paste(pattern, (x0, y0))
+
+
+def apply_dither_outline(img, bbox, radius, width, color_a, color_b, step=2, ratio=0.5):
+    mask = Image.new("L", img.size, 0)
+    mask_draw = ImageDraw.Draw(mask)
+    if radius > 0 and hasattr(mask_draw, "rounded_rectangle"):
+        mask_draw.rounded_rectangle(bbox, radius=radius, outline=255, width=width)
+    else:
+        mask_draw.rectangle(bbox, outline=255, width=width)
+    pattern = create_dither_pattern(img.size, color_a, color_b, step=step, ratio=ratio)
+    img.paste(pattern, (0, 0), mask)
+
+
 def load_photo_for_box(box_size):
     if not PHOTO_DIR.exists():
         return None
@@ -334,32 +375,33 @@ def draw_temp_graph(draw, x, y, width, height, hourly, fonts, inky):
         draw.text((hx - label_w // 2, bottom + 2), label, inky.BLACK, font=fonts[3])
 
 
-def normalize_config(cfg):
-    if not isinstance(cfg, dict):
-        return default_config()
-    if "version" not in cfg:
-        cfg = {**cfg, "version": CONFIG_VERSION}
-    return cfg
-
-
-def default_config():
+def _default_config_raw():
     if DEFAULT_CONFIG_PATH.exists():
         try:
-            return normalize_config(json.loads(DEFAULT_CONFIG_PATH.read_text()))
+            return json.loads(DEFAULT_CONFIG_PATH.read_text())
         except Exception:
             pass
-    return normalize_config({
+    return {
         "update_interval_minutes": 15,
         "update_schedule": "*/15 * * * *",
         "layout": {
             "cols": 2,
             "rows": 2,
             "gutter": 12,
+            "background": {
+                "color": "white",
+                "dither": False,
+                "dither_color": "blue",
+                "dither_step": 2,
+            },
             "border": {
                 "width": 1,
                 "radius": 0,
                 "style": "solid",
                 "color": "black",
+                "dither": False,
+                "dither_color": "white",
+                "dither_step": 2,
             },
             "tiles": [
                 {
@@ -400,7 +442,27 @@ def default_config():
                 },
             ],
         },
-    })
+    }
+
+
+def normalize_config(cfg):
+    default_cfg = _default_config_raw()
+    if not isinstance(cfg, dict):
+        cfg = default_cfg
+    if "version" not in cfg:
+        cfg = {**cfg, "version": CONFIG_VERSION}
+    layout = cfg.get("layout") or {}
+    default_layout = default_cfg.get("layout") or {}
+    cfg["layout"] = {**default_layout, **layout}
+    for key in ("background", "border"):
+        if key in default_layout:
+            current = cfg["layout"].get(key) or {}
+            cfg["layout"][key] = {**default_layout.get(key, {}), **current}
+    return cfg
+
+
+def default_config():
+    return normalize_config(_default_config_raw())
 
 
 def load_config():
@@ -496,8 +558,46 @@ def render_dashboard(config=None, output_path=None, upload=False):
         font_temp = ImageFont.load_default()
         font_meta = ImageFont.load_default()
 
+    orange = getattr(inky, "ORANGE", inky.YELLOW)
+    color_map = {
+        "black": inky.BLACK,
+        "white": inky.WHITE,
+        "green": inky.GREEN,
+        "blue": inky.BLUE,
+        "red": inky.RED,
+        "yellow": inky.YELLOW,
+        "orange": orange,
+    }
+    color_map_rgb = {
+        "black": PALETTE_COLORS[0],
+        "white": PALETTE_COLORS[1],
+        "green": PALETTE_COLORS[2],
+        "blue": PALETTE_COLORS[3],
+        "red": PALETTE_COLORS[4],
+        "yellow": PALETTE_COLORS[5],
+        "orange": PALETTE_COLORS[6],
+    }
+
     # Background and safe area frame
-    draw.rectangle((0, 0, w - 1, h - 1), inky.WHITE)
+    layout_bg = (layout.get("background") or {})
+    bg_color = color_map.get(str(layout_bg.get("color", "white")).lower(), inky.WHITE)
+    bg_color_rgb = color_map_rgb.get(str(layout_bg.get("color", "white")).lower(), PALETTE_COLORS[1])
+    bg_dither = bool(layout_bg.get("dither"))
+    bg_dither_color = color_map.get(str(layout_bg.get("dither_color", "white")).lower(), inky.WHITE)
+    bg_dither_color_rgb = color_map_rgb.get(str(layout_bg.get("dither_color", "white")).lower(), PALETTE_COLORS[1])
+    bg_dither_step = int(layout_bg.get("dither_step", 2)) if layout_bg.get("dither_step") is not None else 2
+    bg_dither_ratio = layout_bg.get("dither_ratio", 0.5)
+    if bg_dither:
+        apply_dither_rect(
+            img,
+            (0, 0, w - 1, h - 1),
+            bg_color_rgb,
+            bg_dither_color_rgb,
+            step=bg_dither_step,
+            ratio=bg_dither_ratio,
+        )
+    else:
+        draw.rectangle((0, 0, w - 1, h - 1), bg_color)
 
     x0, y0 = M_LEFT, M_TOP
     x1, y1 = w - 1 - M_RIGHT, h - 1 - M_BOTTOM
@@ -536,17 +636,13 @@ def render_dashboard(config=None, output_path=None, upload=False):
     border_style = str(border_cfg.get("style", "solid")).lower()
     if border_style not in ("solid", "dotted"):
         border_style = "solid"
-    orange = getattr(inky, "ORANGE", inky.YELLOW)
-    color_map = {
-        "black": inky.BLACK,
-        "white": inky.WHITE,
-        "green": inky.GREEN,
-        "blue": inky.BLUE,
-        "red": inky.RED,
-        "yellow": inky.YELLOW,
-        "orange": orange,
-    }
     border_color = color_map.get(str(border_cfg.get("color", "black")).lower(), inky.BLACK)
+    border_color_rgb = color_map_rgb.get(str(border_cfg.get("color", "black")).lower(), PALETTE_COLORS[0])
+    border_dither = bool(border_cfg.get("dither"))
+    border_dither_color = color_map.get(str(border_cfg.get("dither_color", "white")).lower(), inky.WHITE)
+    border_dither_color_rgb = color_map_rgb.get(str(border_cfg.get("dither_color", "white")).lower(), PALETTE_COLORS[1])
+    border_dither_step = int(border_cfg.get("dither_step", 2)) if border_cfg.get("dither_step") is not None else 2
+    border_dither_ratio = border_cfg.get("dither_ratio", 0.5)
 
     for spec, bbox in layout_tiles(layout_area, cols=cols, rows=rows, gutter=gutter, tile_layout=tiles):
         left, top, right, bottom = bbox
@@ -556,7 +652,17 @@ def render_dashboard(config=None, output_path=None, upload=False):
         tile_img.putpalette(PALETTE_IMAGE.getpalette())
         tile_draw = ImageDraw.Draw(tile_img)
         tile_bbox = (0, 0, tile_w - 1, tile_h - 1)
-        tile_draw.rectangle(tile_bbox, fill=inky.WHITE)
+        if bg_dither:
+            apply_dither_rect(
+                tile_img,
+                tile_bbox,
+                bg_color_rgb,
+                bg_dither_color_rgb,
+                step=bg_dither_step,
+                ratio=bg_dither_ratio,
+            )
+        else:
+            tile_draw.rectangle(tile_bbox, fill=bg_color)
 
         tile_ctx = {
             **ctx,
@@ -581,13 +687,25 @@ def render_dashboard(config=None, output_path=None, upload=False):
                 gap = max(1, tile_border_width)
                 draw_dotted_rounded_rect(tile_draw, tile_bbox, tile_radius, dot, gap, border_color)
             else:
-                if hasattr(tile_draw, "rounded_rectangle") and tile_radius > 0:
-                    tile_draw.rounded_rectangle(tile_bbox, radius=tile_radius, outline=border_color, width=tile_border_width)
+                if border_dither:
+                    apply_dither_outline(
+                        tile_img,
+                        tile_bbox,
+                        tile_radius,
+                        tile_border_width,
+                        border_color_rgb,
+                        border_dither_color_rgb,
+                        step=border_dither_step,
+                        ratio=border_dither_ratio,
+                    )
                 else:
-                    if tile_radius > 0:
-                        draw_rounded_rect_outline(tile_draw, tile_bbox, tile_radius, border_color, width=tile_border_width)
+                    if hasattr(tile_draw, "rounded_rectangle") and tile_radius > 0:
+                        tile_draw.rounded_rectangle(tile_bbox, radius=tile_radius, outline=border_color, width=tile_border_width)
                     else:
-                        tile_draw.rectangle(tile_bbox, outline=border_color, width=tile_border_width)
+                        if tile_radius > 0:
+                            draw_rounded_rect_outline(tile_draw, tile_bbox, tile_radius, border_color, width=tile_border_width)
+                        else:
+                            tile_draw.rectangle(tile_bbox, outline=border_color, width=tile_border_width)
 
         img.paste(tile_img, (left, top))
 

@@ -5,11 +5,22 @@
     "cols": 2,
     "rows": 2,
     "gutter": 8,
+    "background": {
+      "color": "white",
+      "dither": true,
+      "dither_color": "blue",
+      "dither_step": 2,
+      "dither_ratio": 0.5
+    },
     "border": {
       "width": 1,
       "radius": 8,
       "style": "solid",
-      "color": "orange"
+      "color": "orange",
+      "dither": true,
+      "dither_color": "white",
+      "dither_step": 2,
+      "dither_ratio": 0.5
     },
     "tiles": [
       {
