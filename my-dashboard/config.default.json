@@ -1,6 +1,9 @@
 {
   "version": 1,
   "update_interval_minutes": null,
+  "inky": {
+    "use_hardware_cs": false
+  },
   "layout": {
     "cols": 2,
     "rows": 2,

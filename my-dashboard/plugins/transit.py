@@ -1,6 +1,9 @@
+import time
 from urllib.parse import quote
 
 from utils import fetch_json, parse_when, text_size, truncate_text
+
+_LAST_DEPARTURES = {}
 
 DEFAULT_TRANSIT_CONFIG = {
     "stops": ["Genslerstr", "Werneuchener Str"],
@@ -28,100 +31,188 @@ def get_tram_departures(stop_query, line_filter=None):
     )
     stops = fetch_json(stops_url, cache_ttl=60)
     if not stops:
-        return stop_query, ["No stop data"]
+        cached = _LAST_DEPARTURES.get(stop_query)
+        if cached:
+            return cached["stop_name"], cached["rows"]
+        return stop_query, [("No stop data", "", "", "")]
 
     stop = stops[0]
     stop_id = stop.get("id")
     stop_name = stop.get("name", stop_query)
     if not stop_id:
-        return stop_name, ["No stop ID"]
+        return stop_name, [("No stop ID", "", "", "")]
     stop_id = stop_id.split(":")[2] if ":" in stop_id else stop_id
 
     dep_url = (
         f"https://v6.bvg.transport.rest/stops/{stop_id}/departures"
-        "?duration=1440"
+        "?duration=1440&stopovers=true"
     )
     departures = fetch_json(dep_url, cache_ttl=60)
     if not departures:
+        cached = _LAST_DEPARTURES.get(stop_query)
+        if cached:
+            return cached["stop_name"], cached["rows"]
         label = line_filter or "Tram"
-        return stop_name, [(f"No {label} data", "", "")]
+        return stop_name, [(f"No {label} data", "", "", "")]
     if isinstance(departures, dict):
         departures = departures.get("departures", [])
     if not isinstance(departures, list):
         label = line_filter or "Tram"
-        return stop_name, [(f"No {label} data", "", "")]
+        return stop_name, [(f"No {label} data", "", "", "")]
     rows = []
+    def next_stop_name(stopovers, current_stop_id):
+        if not stopovers:
+            return None
+        seen_current = False
+        for stopover in stopovers:
+            stop_id = stopover.get("stop", {}).get("id")
+            if not stop_id:
+                continue
+            if stop_id == current_stop_id:
+                seen_current = True
+                continue
+            if seen_current:
+                return stopover.get("stop", {}).get("name")
+        return None
+
     for dep in departures:
         line = dep.get("line", {}).get("name", "Tram")
         if line_filter and line != line_filter:
             continue
-        direction = dep.get("direction", "")
+        display_direction = dep.get("direction", "")
+        group_direction = display_direction
+        stopovers = dep.get("stopovers") or []
+        trip_id = dep.get("tripId")
+        if not stopovers and trip_id:
+            trip_url = f"https://v6.bvg.transport.rest/trips/{trip_id}?stopovers=true"
+            trip_data = fetch_json(trip_url, cache_ttl=600)
+            if isinstance(trip_data, dict):
+                trip = trip_data.get("trip") or {}
+                stopovers = trip.get("stopovers") or []
+        next_stop = next_stop_name(stopovers, stop_id)
+        if next_stop:
+            group_direction = next_stop
         when = parse_when(dep.get("when") or dep.get("plannedWhen"))
-        rows.append((when, line, direction))
+        rows.append((when, line, group_direction, display_direction))
         if len(rows) >= 16:
             break
     if not rows:
         label = line_filter or "Tram"
-        rows.append((f"No {label} departures", "", ""))
+        rows.append((f"No {label} departures", "", "", ""))
+    else:
+        _LAST_DEPARTURES[stop_query] = {
+            "stop_name": stop_name,
+            "rows": rows,
+            "updated": time.time(),
+        }
     return stop_name, rows
 
 
 def draw_tram_table(draw, x, y, width, title, rows, fonts, inky, title_color, line_bg, line_text_color):
     font_title, font_sub, font_body, font_meta = fonts
-    title_text = truncate_text(draw, title, width, font=font_body)
-    draw.text((x, y), title_text, title_color, font=font_body)
-    y += 20
+    title_text = truncate_text(draw, title, width, font=font_sub)
+    draw.text((x, y), title_text, title_color, font=font_sub)
+    y += line_height(draw, font_sub) + 4
 
     table_left = x
     table_right = x + width
-    col_time = 70
-    col_line = 50
-    col_dir = table_right - table_left - col_time - col_line - 8
+    col_time = text_size(draw, "00:00", font_body)[0]
+    col_line = 34
+    gap = 10
+    col_dir = table_right - table_left - col_time - col_line - (gap * 2)
 
     draw.line((table_left, y, table_right, y), fill=inky.BLACK)
-    y += 8
+    y += 4
 
-    return y, (table_left, table_right, col_time, col_line, col_dir)
+    return y, (table_left, table_right, col_time, col_line, col_dir, gap)
+
+
+def line_height(draw, font):
+    try:
+        return sum(font.getmetrics())
+    except AttributeError:
+        return text_size(draw, "Ag", font)[1]
 
 
 def abbreviate_berlin_destination(text):
     if not text:
         return text
+    normalized = text
+    normalized = normalized.replace(" (Berlin)", "").replace(" (Bln)", "")
+    normalized = normalized.split(" [", 1)[0]
+    normalized = normalized.replace("\u00fc", "ue").replace("\u00f6", "oe").replace("\u00e4", "ae")
+    normalized = normalized.replace("\u00df", "ss")
+    normalized = normalized.replace("\u00dc", "Ue").replace("\u00d6", "Oe").replace("\u00c4", "Ae")
+    normalized = normalized.replace("Stra\u00dfe", "Str.")
+    if "," in normalized:
+        normalized = normalized.split(",")[-1].strip()
     abbreviations = {
         "Landsberger Allee": "Land. Allee",
+        "Landsberger Allee/Petersburger Str.": "Land. Allee/Petersb. Str.",
+        "Landsberger Allee/Rhinstr.": "Land. Allee/Rhinstr.",
+        "Lueneburger Str.": "Lueneburger Str.",
+        "Zingster Str.": "Zingster Str.",
+        "Virchowstr.": "Virchowstr.",
+        "Betriebshof Marzahn": "Betr. Marzahn",
+        "S Hackescher Markt": "S Hackescher Markt",
+        "S Marzahn": "S Marzahn",
+        "Riesaer Str.": "Riesaer Str.",
+        "Siedlung Wartenberg/Str. 5": "Siedl. Wartenberg/Str. 5",
+        "Zentralfriedhof": "Zentralfriedhof",
     }
     for full, short in abbreviations.items():
-        if full in text:
-            text = text.replace(full, short)
-    return text
+        if full in normalized:
+            normalized = normalized.replace(full, short)
+    return normalized
+
+
+def normalize_direction(direction):
+    if not direction:
+        return ""
+    overrides = {
+        "Landsberger Allee/Petersburger Str.": "S+U Hauptbahnhof",
+    }
+    for key, target in overrides.items():
+        if key in direction:
+            return target
+    return direction
 
 
 def draw_tram_rows(draw, y, columns, rows, fonts, inky, line_bg, line_text_color, max_rows):
-    table_left, table_right, col_time, col_line, col_dir = columns
+    table_left, table_right, col_time, col_line, col_dir, gap = columns
     _, _, font_body, _ = fonts
     if not rows:
         draw.text((table_left, y), "No departures", inky.BLACK, font=font_body)
         return y + 28
     count = 0
-    for when, line, direction in rows:
-        draw.text((table_left, y), when, inky.BLACK, font=font_body)
-        line_x = table_left + col_time
-        line_text = truncate_text(draw, line, col_line - 8, font=font_body)
+    row_h = max(16, line_height(draw, font_body) + 4)
+    text_h = line_height(draw, font_body)
+    for when, line, group_direction, display_direction in rows:
+        text_y = y + max(0, (row_h - text_h) // 2)
+        draw.text((table_left, text_y), when, inky.BLACK, font=font_body)
+        line_x = table_left + col_time + gap
+        line_text = truncate_text(draw, line, col_line - 4, font=font_body)
         line_w, line_h = text_size(draw, line_text, font=font_body)
-        box_w = min(col_line - 4, line_w + 10)
-        box_h = line_h + 4
-        box_y = y + 2
+        box_w = col_line - 1
+        box_h = line_h + 3
+        box_y = y + max(0, (row_h - box_h) // 2) + 1
         if line_text:
             draw.rectangle(
                 (line_x, box_y, line_x + box_w, box_y + box_h),
                 fill=line_bg,
                 outline=line_bg,
             )
-            draw.text((line_x + 5, y), line_text, line_text_color, font=font_body)
-        dir_text = abbreviate_berlin_destination(direction)
+            text_x = line_x + max(0, (box_w - line_w) // 2)
+            draw.text((text_x, text_y), line_text, line_text_color, font=font_body)
+        dir_text = display_direction or ""
+        if dir_text:
+            dir_text = dir_text.replace(" (Berlin)", "").replace(" (Bln)", "")
+        if text_size(draw, dir_text, font=font_body)[0] > col_dir:
+            dir_text = abbreviate_berlin_destination(dir_text)
         dir_text = truncate_text(draw, dir_text, col_dir, font=font_body)
-        draw.text((table_left + col_time + col_line, y), dir_text, inky.BLACK, font=font_body)
-        y += 20
+        dest_x = table_left + col_time + gap + col_line + gap
+        draw.text((dest_x, text_y), dir_text, inky.BLACK, font=font_body)
+        y += row_h
         count += 1
         if count >= max_rows:
             break
@@ -164,14 +255,45 @@ def draw_transit_tile(ctx, bbox, config):
 
         groups = []
         group_index = {}
-        for when, line, direction in rows:
-            key = direction or ""
+
+        def token_overlap(a, b):
+            if not a or not b:
+                return 0
+            a_tokens = set(a.lower().replace("/", " ").replace(",", " ").split())
+            b_tokens = set(b.lower().replace("/", " ").replace(",", " ").split())
+            return len(a_tokens & b_tokens)
+
+        raw_keys = []
+        for _, _, group_direction, _ in rows:
+            key = normalize_direction(group_direction) or ""
+            if key not in raw_keys:
+                raw_keys.append(key)
+        allow_merge = len(raw_keys) > 2
+
+        for when, line, group_direction, display_direction in rows:
+            key = normalize_direction(group_direction) or ""
             if key not in group_index:
-                if len(groups) >= 2:
-                    continue
-                group_index[key] = len(groups)
-                groups.append([])
-            groups[group_index[key]].append((when, line, direction))
+                if len(groups) < 2:
+                    group_index[key] = len(groups)
+                    groups.append([])
+                elif allow_merge:
+                    # Merge extra directions into the closest existing group.
+                    best_idx = 0
+                    best_score = -1
+                    for idx, group_rows in enumerate(groups):
+                        group_name = group_rows[0][2] if group_rows else ""
+                        score = token_overlap(key, group_name)
+                        if score > best_score:
+                            best_score = score
+                            best_idx = idx
+                        elif score == best_score and score == 0:
+                            if len(group_rows) < len(groups[best_idx]):
+                                best_idx = idx
+                    group_index[key] = best_idx
+                else:
+                    # Keep only two distinct directions and drop extras into the second group.
+                    group_index[key] = 1
+            groups[group_index[key]].append((when, line, group_direction, display_direction))
 
         y, columns = draw_tram_table(
             draw,
@@ -188,6 +310,34 @@ def draw_transit_tile(ctx, bbox, config):
         )
         if not groups:
             groups = [rows]
+        west_keywords = {
+            "hauptbahnhof",
+            "hackescher markt",
+            "zentralfriedhof",
+            "lueneburger",
+        }
+        east_keywords = {
+            "zingster",
+            "virchow",
+            "riesaer",
+            "marzahn",
+            "wartenberg",
+            "landsberger",
+        }
+
+        def group_direction_score(group_rows):
+            for _, _, group_direction, _ in group_rows:
+                if group_direction:
+                    name = abbreviate_berlin_destination(group_direction).lower()
+                    for token in west_keywords:
+                        if token in name:
+                            return 0
+                    for token in east_keywords:
+                        if token in name:
+                            return 1
+            return 2
+
+        groups = sorted(groups, key=group_direction_score)
         for idx, group_rows in enumerate(groups):
             if idx > 0:
                 y += 4

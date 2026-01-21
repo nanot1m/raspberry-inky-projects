@@ -12,5 +12,7 @@ rsync -av --delete \
   --exclude "__pycache__" \
   --exclude "*.pyc" \
   --exclude ".DS_Store" \
+  --exclude ".presets/" \
+  --exclude-from "$repo_root/.gitignore" \
   $( [ "$sync_config" = "1" ] || printf '%s' "--exclude config.json" ) \
   "$source_dir" "$destination"

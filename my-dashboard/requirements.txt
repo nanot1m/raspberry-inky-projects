@@ -1,2 +1,4 @@
 inky[rpi]
 cairosvg
+icalendar
+recurring-ical-events

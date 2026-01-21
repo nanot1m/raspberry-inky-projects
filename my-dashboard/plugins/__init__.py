@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple
 
+from .calendar import CALENDAR_SCHEMA, DEFAULT_CALENDAR_CONFIG, draw_calendar_tile
 from .transit import DEFAULT_TRANSIT_CONFIG, TRANSIT_SCHEMA, draw_transit_tile
 from .weather import DEFAULT_WEATHER_CONFIG, WEATHER_SCHEMA, draw_weather_tile
 
@@ -37,21 +38,25 @@ def layout_tiles(area, cols, rows, gutter, tile_layout):
 
 
 PLUGIN_REGISTRY = {
+    "calendar": draw_calendar_tile,
     "transit": draw_transit_tile,
     "weather": draw_weather_tile,
 }
 
 PLUGIN_DEFAULTS = {
+    "calendar": DEFAULT_CALENDAR_CONFIG,
     "transit": DEFAULT_TRANSIT_CONFIG,
     "weather": DEFAULT_WEATHER_CONFIG,
 }
 
 PLUGIN_SCHEMAS = {
+    "calendar": CALENDAR_SCHEMA,
     "transit": TRANSIT_SCHEMA,
     "weather": WEATHER_SCHEMA,
 }
 
 PLUGIN_NAMES = {
+    "calendar": "Calendar",
     "transit": "Transit",
     "weather": "Weather",
 }

@@ -32,11 +32,13 @@ class PreviewInky:
     def __init__(self, resolution):
         self.resolution = resolution
 
-def get_inky(upload):
+def get_inky(upload, use_hardware_cs=True):
     if not upload:
         return PreviewInky(resolution=(EXPECTED_W, EXPECTED_H))
     try:
         inky = auto()
+        if not use_hardware_cs:
+            return inky
         cs_pin = getattr(inky, "cs_pin", None)
         if cs_pin is not None:
             try:
@@ -142,6 +144,7 @@ BUS_REQUESTS = ["Werneuchener Str./Große-Leege-Str."]
 PHOTO_DIR = Path(__file__).resolve().parent / "photos"
 CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config.default.json"
+PRESET_DIR = Path(__file__).resolve().parent / ".presets"
 CONFIG_VERSION = 1
 
 
@@ -384,6 +387,9 @@ def _default_config_raw():
     return {
         "update_interval_minutes": 15,
         "update_schedule": "*/15 * * * *",
+        "inky": {
+            "use_hardware_cs": False,
+        },
         "layout": {
             "cols": 2,
             "rows": 2,
@@ -458,6 +464,9 @@ def normalize_config(cfg):
         if key in default_layout:
             current = cfg["layout"].get(key) or {}
             cfg["layout"][key] = {**default_layout.get(key, {}), **current}
+    if "inky" in default_cfg:
+        current = cfg.get("inky") or {}
+        cfg["inky"] = {**default_cfg.get("inky", {}), **current}
     return cfg
 
 
@@ -469,9 +478,20 @@ def load_config():
     if not CONFIG_PATH.exists():
         return default_config()
     try:
-        return normalize_config(json.loads(CONFIG_PATH.read_text()))
+        base_cfg = json.loads(CONFIG_PATH.read_text())
     except Exception:
         return default_config()
+    active_preset = base_cfg.get("active_preset")
+    if active_preset:
+        try:
+            preset_path = PRESET_DIR / f"{active_preset}.json"
+            if preset_path.exists():
+                preset_cfg = json.loads(preset_path.read_text())
+                preset_cfg["active_preset"] = active_preset
+                return normalize_config(preset_cfg)
+        except Exception:
+            pass
+    return normalize_config(base_cfg)
 
 
 def build_tile_specs(config):
@@ -534,7 +554,8 @@ def render_dashboard(config=None, output_path=None, upload=False):
     cfg = config or default_config()
     layout = cfg.get("layout", {})
 
-    inky = get_inky(upload)
+    use_hardware_cs = (cfg.get("inky") or {}).get("use_hardware_cs", True)
+    inky = get_inky(upload, use_hardware_cs=use_hardware_cs)
     w, h = inky.resolution
     img = Image.new("P", (w, h))
     img.putpalette(PALETTE_IMAGE.getpalette())
@@ -546,11 +567,12 @@ def render_dashboard(config=None, output_path=None, upload=False):
 
     # Fonts (fall back to default bitmap font if truetype is unavailable)
     try:
-        font_title = ImageFont.truetype("DejaVuSans.ttf", 28)
-        font_sub = ImageFont.truetype("DejaVuSans.ttf", 20)
-        font_body = ImageFont.truetype("DejaVuSans.ttf", 17)
-        font_temp = ImageFont.truetype("DejaVuSans.ttf", 56)
-        font_meta = ImageFont.truetype("DejaVuSans.ttf", 16)
+        font_path = "assets/fonts/monogram/monogram-extended.ttf"
+        font_title = ImageFont.truetype(font_path, 32)
+        font_sub = ImageFont.truetype(font_path, 32)
+        font_body = ImageFont.truetype(font_path, 16)
+        font_temp = ImageFont.truetype(font_path, 64)
+        font_meta = ImageFont.truetype(font_path, 16)
     except OSError:
         font_title = ImageFont.load_default()
         font_sub = ImageFont.load_default()
@@ -620,6 +642,9 @@ def render_dashboard(config=None, output_path=None, upload=False):
             "meta": font_meta,
         },
         "now": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "layout_area": layout_area,
+        "layout_cols": cols,
+        "layout_rows": rows,
     }
 
     border_cfg = layout.get("border") or {}

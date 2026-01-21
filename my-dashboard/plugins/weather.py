@@ -403,7 +403,7 @@ def draw_weather_tile_split(ctx, bbox, config):
     # Left side: icon + label
     icon_size = min(110, max(48, w_height - 70), max(0, left_col_w - 8))
     icon_x = wx + 4
-    icon_y = wy + 6
+    icon_y = wy + 4
     draw_weather_icon(
         img,
         draw,
@@ -419,7 +419,7 @@ def draw_weather_tile_split(ctx, bbox, config):
     label_max_w = max(0, left_col_w - 8)
     label = truncate_text(draw, label, label_max_w, font_body)
     label_w, _ = text_size(draw, label, font_body)
-    label_y = icon_y + icon_size + 6
+    label_y = icon_y + icon_size + 8
     label_x = icon_x + max(0, (icon_size - label_w) // 2)
     draw.text((label_x, label_y), label, inky.BLACK, font=font_body)
 
@@ -440,10 +440,10 @@ def draw_weather_tile_split(ctx, bbox, config):
         rain_text = None
         if rain_chance is not None:
             rain_text = f"Rain {rain_chance:.0f}%"
-        temp_y = wy + 6
+        temp_y = wy + 4
         draw_temp_with_degree(draw, right_x, temp_y, current_temp, font_temp, inky)
 
-        range_y = temp_y + temp_h + 6
+        range_y = temp_y + temp_h + 8
         draw.text((right_x, range_y), range_text, inky.BLACK, font=font_body)
 
         if rain_text:
@@ -501,25 +501,25 @@ def draw_weather_tile_card(ctx, bbox, config):
     meta_line_h = line_height(draw, font_meta)
     body_line_h = line_height(draw, font_body)
     sub_line_h = line_height(draw, font_sub)
-    forecast_h = max(40, meta_line_h + body_line_h + 14)
+    forecast_h = max(44, meta_line_h + body_line_h + 18)
     content_bottom = y1 - pad - forecast_h
 
     city = str(config.get("city") or "").strip() or "Weather"
     city_text = truncate_text(draw, city.upper(), left_w, font_sub)
-    city_y = wy + 6
+    city_y = wy + 4
     draw.text((left_x, city_y), city_text, inky.BLACK, font=font_sub)
 
     day_text = datetime.now().strftime("%A").upper()
     day_text = truncate_text(draw, day_text, left_w, font_body)
-    day_y = city_y + sub_line_h + 4
+    day_y = city_y + sub_line_h + 6
     draw.text((left_x, day_y), day_text, inky.BLACK, font=font_body)
 
     now_dt = datetime.now()
     date_text = f"{now_dt.day} {now_dt.strftime('%b')}"
-    date_y = day_y + body_line_h + 2
+    date_y = day_y + body_line_h + 4
     draw.text((left_x, date_y), date_text, inky.BLACK, font=font_meta)
 
-    left_y = date_y + meta_line_h + 6
+    left_y = date_y + meta_line_h + 8
     _ = weather.get("wind_speed")
 
     rain_chance = weather.get("rain_chance")
@@ -537,7 +537,7 @@ def draw_weather_tile_card(ctx, bbox, config):
 
     icon_size = min(96, max(40, center_w), max(40, content_bottom - wy - 60))
     icon_x = center_x + max(0, (center_w - icon_size) // 2)
-    icon_y = wy + 18
+    icon_y = wy + 14
     draw_weather_icon(
         img,
         draw,
@@ -552,7 +552,7 @@ def draw_weather_tile_card(ctx, bbox, config):
     label = weather_label(weather.get("code")) if weather.get("code") is not None else "Unknown"
     label = truncate_text(draw, label.upper(), center_w, font_body)
     label_w, _ = text_size(draw, label, font_body)
-    label_y = icon_y + icon_size + 4
+    label_y = icon_y + icon_size + 6
     label_x = center_x + max(0, (center_w - label_w) // 2)
     draw.text((label_x, label_y), label, inky.BLACK, font=font_body)
 
@@ -585,8 +585,8 @@ def draw_weather_tile_card(ctx, bbox, config):
     if daily:
         divider_y = y1 - pad - forecast_h
         draw.line((wx, divider_y, x1 - pad, divider_y), fill=inky.BLACK, width=1)
-        forecast_y0 = divider_y + 6
-        forecast_y1 = y1 - pad - 6
+        forecast_y0 = divider_y + 8
+        forecast_y1 = y1 - pad - 8
         slots = min(5, len(daily))
         if slots > 0:
             col_w = max(1, w_width // slots)
@@ -603,7 +603,7 @@ def draw_weather_tile_card(ctx, bbox, config):
 
                 icon_size_sm = min(30, max(20, col_w - 6))
                 icon_x = col_x + max(0, (col_w - icon_size_sm) // 2)
-                icon_y = forecast_y0 + meta_line_h + 2
+                icon_y = forecast_y0 + meta_line_h + 4
                 draw_weather_icon(
                     img,
                     draw,
@@ -626,7 +626,7 @@ def draw_weather_tile_card(ctx, bbox, config):
                 if temp_text:
                     temp_w, _ = text_size(draw, temp_text, font_meta)
                     temp_x = col_x + max(0, (col_w - temp_w) // 2)
-                    temp_y = icon_y + icon_size_sm + 2
+                    temp_y = icon_y + icon_size_sm + 4
                     if temp_y + meta_line_h <= forecast_y1:
                         draw.text((temp_x, temp_y), temp_text, inky.BLACK, font=font_meta)
 

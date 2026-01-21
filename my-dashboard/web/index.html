@@ -9,13 +9,17 @@
   <body>
     <div class="card">
       <h1>My Dashboard</h1>
-      <div class="panel panel-actions">
-        <div class="buttons">
-          <button id="saveConfig">Save Config</button>
-          <button id="preview">Preview</button>
-          <button id="apply">Upload to Device</button>
-          <button id="resetConfig" class="reset hidden">Reset</button>
-        </div>
+        <div class="panel panel-actions">
+          <div class="buttons">
+            <select id="presetSelect" class="preset-select">
+              <option value="">Presets</option>
+            </select>
+            <button id="saveConfig">Save</button>
+            <button id="saveAs">Save as...</button>
+            <button id="preview">Preview</button>
+            <button id="apply">Upload to Device</button>
+            <button id="deletePreset" class="delete">Delete Preset</button>
+          </div>
         <div class="status-area">
           <div class="status" id="status"></div>
           <div class="progress" id="applyProgress" aria-hidden="true">
@@ -90,8 +94,10 @@
               <option value="yellow">yellow</option>
               <option value="orange">orange</option>
             </select>
-            <label>Border dither</label>
-            <input id="borderDither" type="checkbox" />
+            <div class="checkbox-row">
+              <label for="borderDither">Border dither</label>
+              <input id="borderDither" type="checkbox" />
+            </div>
             <label>Border dither color</label>
             <select id="borderDitherColor">
               <option value="black">black</option>
@@ -116,8 +122,10 @@
               <option value="yellow">yellow</option>
               <option value="orange">orange</option>
             </select>
-            <label>Background dither</label>
-            <input id="backgroundDither" type="checkbox" />
+            <div class="checkbox-row">
+              <label for="backgroundDither">Background dither</label>
+              <input id="backgroundDither" type="checkbox" />
+            </div>
             <label>Background dither color</label>
             <select id="backgroundDitherColor">
               <option value="black">black</option>

@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import re
 import threading
 import time
 from io import BytesIO
@@ -19,6 +20,7 @@ BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
 OUTPUT_DIR = BASE_DIR / ".generated"
 SCRIPT_PATH = BASE_DIR / "my_dashboard.py"
+PRESET_DIR = BASE_DIR / ".presets"
 
 _apply_lock = threading.Lock()
 _apply_process = None
@@ -228,6 +230,21 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 "schemas": PLUGIN_SCHEMAS,
                 "names": PLUGIN_NAMES,
             })
+        if self.path.startswith("/api/presets"):
+            PRESET_DIR.mkdir(parents=True, exist_ok=True)
+            presets = {}
+            for path in PRESET_DIR.glob("*.json"):
+                try:
+                    presets[path.stem] = json.loads(path.read_text())
+                except Exception:
+                    continue
+            active = None
+            try:
+                cfg = load_config()
+                active = cfg.get("active_preset")
+            except Exception:
+                active = None
+            return self._send_json({"presets": presets, "active": active})
         return super().do_GET()
 
     def do_POST(self):
@@ -237,6 +254,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self._send_json({"error": "Invalid JSON"}, status=400)
             try:
                 payload = normalize_config(payload or {})
+                try:
+                    existing = load_config()
+                    if "active_preset" in existing and "active_preset" not in payload:
+                        payload["active_preset"] = existing.get("active_preset")
+                except Exception:
+                    pass
                 payload.setdefault("version", CONFIG_VERSION)
                 CONFIG_PATH.write_text(json.dumps(payload, indent=2))
                 minutes = payload.get("update_interval_minutes")
@@ -248,6 +271,48 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception:
                 return self._send_json({"error": "Failed to save config"}, status=500)
             return self._send_json({"ok": True})
+
+        if self.path.startswith("/api/presets/activate"):
+            payload = self._read_json()
+            if payload is None:
+                return self._send_json({"error": "Invalid JSON"}, status=400)
+            name = str(payload.get("name") or "").strip()
+            safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", name).strip("_")
+            if not safe:
+                return self._send_json({"error": "Invalid preset name"}, status=400)
+            cfg = load_config()
+            cfg["active_preset"] = safe
+            CONFIG_PATH.write_text(json.dumps(cfg, indent=2))
+            try:
+                preset_path = PRESET_DIR / f"{safe}.json"
+                if not preset_path.exists():
+                    return self._send_json({"error": "Preset not found"}, status=404)
+                preset_cfg = json.loads(preset_path.read_text())
+                minutes = preset_cfg.get("update_interval_minutes")
+                schedule = preset_cfg.get("update_schedule")
+                if minutes is None and schedule is None:
+                    return self._send_json({"error": "Preset missing schedule"}, status=400)
+                ok, message = update_cron(schedule=schedule, minutes=minutes)
+                if not ok:
+                    return self._send_json({"error": message}, status=400)
+            except Exception:
+                return self._send_json({"error": "Failed to update schedule"}, status=500)
+            return self._send_json({"ok": True, "name": safe})
+
+        if self.path.startswith("/api/presets"):
+            payload = self._read_json()
+            if payload is None:
+                return self._send_json({"error": "Invalid JSON"}, status=400)
+            name = str(payload.get("name") or "").strip()
+            config = payload.get("config")
+            if not name or not isinstance(config, dict):
+                return self._send_json({"error": "Missing preset name or config"}, status=400)
+            safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", name).strip("_")
+            if not safe:
+                return self._send_json({"error": "Invalid preset name"}, status=400)
+            PRESET_DIR.mkdir(parents=True, exist_ok=True)
+            (PRESET_DIR / f"{safe}.json").write_text(json.dumps(config, indent=2))
+            return self._send_json({"ok": True, "name": safe})
 
         if self.path.startswith("/api/preview"):
             payload = self._read_json()
@@ -273,12 +338,42 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
         return self._send_json({"error": "Not found"}, status=404)
 
+    def do_DELETE(self):
+        if self.path.startswith("/api/presets"):
+            parsed = urlparse(self.path)
+            params = parse_qs(parsed.query)
+            name = (params.get("name") or [""])[0]
+            safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", name).strip("_")
+            if not safe:
+                return self._send_json({"error": "Invalid preset name"}, status=400)
+            path = PRESET_DIR / f"{safe}.json"
+            if path.exists():
+                path.unlink()
+            try:
+                cfg = load_config()
+                if cfg.get("active_preset") == safe:
+                    cfg.pop("active_preset", None)
+                    CONFIG_PATH.write_text(json.dumps(cfg, indent=2))
+            except Exception:
+                pass
+            return self._send_json({"ok": True})
+        return self._send_json({"error": "Not found"}, status=404)
+
 
 def main():
     parser = argparse.ArgumentParser(description="My Dashboard HTTP server")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
+
+    try:
+        cfg = load_config()
+        minutes = cfg.get("update_interval_minutes")
+        schedule = cfg.get("update_schedule")
+        if minutes is not None or schedule:
+            update_cron(schedule=schedule, minutes=minutes)
+    except Exception:
+        pass
 
     host = args.host
     port = args.port

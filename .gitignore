@@ -4,3 +4,4 @@
 __pycache__/
 *.pyc
 my-dashboard/config.json
+my-dashboard/.presets/

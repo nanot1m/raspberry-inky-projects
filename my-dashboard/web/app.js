@@ -2,9 +2,12 @@ const statusEl = document.getElementById("status");
 const applyProgressEl = document.getElementById("applyProgress");
 const applyProgressBarEl = document.getElementById("applyProgressBar");
 const applyBtn = document.getElementById("apply");
+const saveConfigBtn = document.getElementById("saveConfig");
+const saveAsBtn = document.getElementById("saveAs");
 const tilesEl = document.getElementById("tiles");
 const safeViewportEl = document.getElementById("safeViewport");
-const resetBtn = document.getElementById("resetConfig");
+const presetSelect = document.getElementById("presetSelect");
+const deletePresetBtn = document.getElementById("deletePreset");
 const scheduleInput = document.getElementById("updateInterval");
 const borderWidthInput = document.getElementById("borderWidth");
 const borderRadiusInput = document.getElementById("borderRadius");
@@ -534,11 +537,21 @@ const renderTileConfig = (tiles, pluginMeta) => {
   pluginRow.appendChild(pluginLabel);
 
   const select = document.createElement("select");
+  const isFullscreen = currentLayout.cols === 1 &&
+    currentLayout.rows === 1 &&
+    tile.col === 0 &&
+    tile.row === 0 &&
+    tile.colspan === 1 &&
+    tile.rowspan === 1;
   Object.keys(pluginMeta.defaults).forEach((name) => {
+    if (name === "calendar" && !isFullscreen && tile.plugin !== "calendar") {
+      return;
+    }
     const opt = document.createElement("option");
     opt.value = name;
     opt.textContent = pluginMeta.names?.[name] || name;
     if (tile.plugin === name) opt.selected = true;
+    if (name === "calendar" && !isFullscreen) opt.disabled = true;
     select.appendChild(opt);
   });
   pluginRow.appendChild(select);
@@ -555,9 +568,9 @@ const renderTileConfig = (tiles, pluginMeta) => {
   const addField = (key, def) => {
     const label = document.createElement("label");
     label.textContent = def.label || key;
-    cfgWrap.appendChild(label);
 
     if (def.type === "enum") {
+      cfgWrap.appendChild(label);
       const sel = document.createElement("select");
       sel.dataset.key = key;
       (def.options || []).forEach((optVal) => {
@@ -572,12 +585,93 @@ const renderTileConfig = (tiles, pluginMeta) => {
     }
 
     if (def.type === "list") {
+      cfgWrap.appendChild(label);
+      if (def.help) {
+        const help = document.createElement("div");
+        help.className = "field-help";
+        help.textContent = def.help;
+        cfgWrap.appendChild(help);
+      }
       const list = Array.isArray(current[key]) ? current[key] : [];
       const listWrap = document.createElement("div");
       listWrap.className = "array-list";
       listWrap.dataset.key = key;
       listWrap.dataset.itemType = def.itemType || "string";
+      const itemFields = def.itemFields || null;
+
+      const buildObjectRow = (value) => {
+        const row = document.createElement("div");
+        row.className = "array-item object-item";
+        const fieldByKey = {};
+        (itemFields || []).forEach((field) => {
+          const fieldWrap = document.createElement("div");
+          fieldWrap.className = "field";
+          if (field.key === "name") {
+            fieldWrap.classList.add("full");
+          }
+          const fieldLabel = document.createElement("label");
+          fieldLabel.textContent = field.label || field.key;
+          fieldWrap.appendChild(fieldLabel);
+          let input;
+          if (field.type === "enum") {
+            input = document.createElement("select");
+            (field.options || []).forEach((optVal) => {
+              const opt = document.createElement("option");
+              opt.value = optVal;
+              opt.textContent = optVal;
+              input.appendChild(opt);
+            });
+          } else {
+            input = document.createElement("input");
+            input.type = "text";
+          }
+          input.dataset.field = field.key;
+          if (field.placeholder) input.placeholder = field.placeholder;
+          input.value = value?.[field.key] ?? "";
+          fieldWrap.appendChild(input);
+          row.appendChild(fieldWrap);
+          fieldByKey[field.key] = fieldWrap;
+        });
+        const updateVisibility = () => {
+          const typeValue = row.querySelector('[data-field="type"]')?.value || "";
+          const typeLower = typeValue.toLowerCase();
+          Object.entries(fieldByKey).forEach(([key, wrap]) => {
+            if (key === "type" || key === "name" || key === "color") {
+              wrap.classList.remove("hidden");
+              return;
+            }
+            wrap.classList.add("hidden");
+            if (typeLower === "ical_url" && key === "url") wrap.classList.remove("hidden");
+            if (typeLower === "local" && key === "path") wrap.classList.remove("hidden");
+            if (typeLower === "google" && (key === "calendar_id" || key === "api_key")) {
+              wrap.classList.remove("hidden");
+            }
+          });
+        };
+        const typeSelect = row.querySelector('[data-field="type"]');
+        if (typeSelect) {
+          typeSelect.addEventListener("change", () => {
+            updateVisibility();
+            updateResetState();
+          });
+        }
+        updateVisibility();
+        const del = document.createElement("button");
+        del.type = "button";
+        del.textContent = "Remove";
+        del.addEventListener("click", () => {
+          row.remove();
+          updateResetState();
+        });
+        row.appendChild(del);
+        return row;
+      };
+
       list.forEach((value) => {
+        if (itemFields) {
+          listWrap.appendChild(buildObjectRow(value));
+          return;
+        }
         const row = document.createElement("div");
         row.className = "array-item";
         const input = document.createElement("input");
@@ -604,6 +698,11 @@ const renderTileConfig = (tiles, pluginMeta) => {
       addBtn.type = "button";
       addBtn.textContent = "Add";
       addBtn.addEventListener("click", () => {
+        if (itemFields) {
+          listWrap.appendChild(buildObjectRow({}));
+          updateResetState();
+          return;
+        }
         const row = document.createElement("div");
         row.className = "array-item";
         const input = document.createElement("input");
@@ -636,6 +735,7 @@ const renderTileConfig = (tiles, pluginMeta) => {
     const input = document.createElement("input");
     input.dataset.key = key;
     if (def.type === "number") {
+      cfgWrap.appendChild(label);
       input.type = "number";
       if (def.min !== undefined) input.min = def.min;
       if (def.max !== undefined) input.max = def.max;
@@ -644,7 +744,17 @@ const renderTileConfig = (tiles, pluginMeta) => {
     } else if (def.type === "boolean") {
       input.type = "checkbox";
       input.checked = Boolean(current[key]);
+      const row = document.createElement("div");
+      row.className = "checkbox-row";
+      const fieldId = `cfg-${idx}-${key}`;
+      input.id = fieldId;
+      label.setAttribute("for", fieldId);
+      row.appendChild(label);
+      row.appendChild(input);
+      cfgWrap.appendChild(row);
+      return;
     } else {
+      cfgWrap.appendChild(label);
       input.type = "text";
       input.value = current[key] ?? "";
     }
@@ -677,6 +787,71 @@ const renderTiles = (tiles, pluginMeta) => {
   renderTileConfig(currentTiles, pluginMeta);
 };
 
+const fetchPresets = async () => {
+  const data = await fetchJson("/api/presets");
+  return data;
+};
+
+const refreshPresetSelect = (presets, selectedName = "") => {
+  presetSelect.innerHTML = "";
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Presets";
+  presetSelect.appendChild(placeholder);
+  const names = Object.keys(presets).sort();
+  names.forEach((name) => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    if (name === selectedName) opt.selected = true;
+    presetSelect.appendChild(opt);
+  });
+  deletePresetBtn.disabled = !presetSelect.value || names.length <= 1;
+};
+
+const findMatchingPreset = (presets, config) => {
+  const target = normalizeConfig(config);
+  for (const [name, preset] of Object.entries(presets)) {
+    if (normalizeConfig(preset) === target) return name;
+  }
+  return "";
+};
+
+const applyConfigToUI = async (config, options = {}) => {
+  const pluginMeta = currentPluginMeta || await fetchJson("/api/plugins");
+  currentLayout = { cols: config.layout.cols, rows: config.layout.rows };
+  document.getElementById("gutter").value = config.layout.gutter;
+  borderWidthInput.value = config.layout.border?.width ?? 1;
+  borderRadiusInput.value = config.layout.border?.radius ?? 0;
+  borderStyleSelect.value = config.layout.border?.style ?? "solid";
+  borderColorSelect.value = config.layout.border?.color ?? "black";
+  borderDitherInput.checked = Boolean(config.layout.border?.dither);
+  borderDitherColorSelect.value = config.layout.border?.dither_color ?? "white";
+  borderDitherStepInput.value = config.layout.border?.dither_step ?? 2;
+  borderDitherRatioInput.value = config.layout.border?.dither_ratio ?? 0.5;
+  backgroundColorSelect.value = config.layout.background?.color ?? "white";
+  backgroundDitherInput.checked = Boolean(config.layout.background?.dither);
+  backgroundDitherColorSelect.value = config.layout.background?.dither_color ?? "blue";
+  backgroundDitherStepInput.value = config.layout.background?.dither_step ?? 2;
+  backgroundDitherRatioInput.value = config.layout.background?.dither_ratio ?? 0.5;
+  if (config.update_interval_minutes != null) {
+    scheduleInput.value = String(config.update_interval_minutes);
+  } else {
+    scheduleInput.value = parseScheduleMinutes(config.update_schedule);
+  }
+  renderTiles(config.layout.tiles, pluginMeta);
+  updateResetState();
+  updateResetState();
+  currentConfig = config;
+  updateResetState();
+  if (presetSelect && !options.skipPresetRefresh) {
+    const data = await fetchPresets();
+    const presets = data.presets || {};
+    const match = options.selectedPreset || data.active || findMatchingPreset(presets, config);
+    refreshPresetSelect(presets, match);
+  }
+};
+
 const parseScheduleMinutes = (schedule) => {
   if (!schedule) return "";
   const parts = schedule.trim().split(/\s+/);
@@ -696,6 +871,19 @@ const readSelectedTileConfig = () => {
     const key = el.dataset.key;
     if (el.classList.contains("array-list")) {
       const items = [];
+      if (el.dataset.itemType === "object") {
+        el.querySelectorAll(".array-item").forEach((row) => {
+          const obj = {};
+          row.querySelectorAll("[data-field]").forEach((input) => {
+            const fieldKey = input.dataset.field;
+            if (!fieldKey) return;
+            if (input.value.trim() !== "") obj[fieldKey] = input.value.trim();
+          });
+          if (Object.keys(obj).length > 0) items.push(obj);
+        });
+        config[key] = items;
+        return;
+      }
       el.querySelectorAll(".array-item input").forEach((input) => {
         if (input.type === "number") {
           if (input.value !== "") items.push(Number(input.value));
@@ -734,6 +922,8 @@ const collectConfig = () => {
   });
   return {
     version: currentConfig?.version ?? CONFIG_VERSION,
+    active_preset: currentConfig?.active_preset ?? null,
+    inky: currentConfig?.inky ?? null,
     update_interval_minutes: scheduleInput.value === "" ? null : Number(scheduleInput.value),
     layout: {
       cols: currentLayout.cols,
@@ -798,7 +988,38 @@ let currentLayout = { cols: 2, rows: 2 };
 let currentConfig = null;
 const CONFIG_VERSION = 1;
 
-const normalizeConfig = (cfg) => JSON.stringify(cfg || {});
+const stableStringify = (value) => {
+  const normalize = (val) => {
+    if (Array.isArray(val)) {
+      return val.map((item) => normalize(item));
+    }
+    if (val && typeof val === "object") {
+      const out = {};
+      Object.keys(val).sort().forEach((key) => {
+        const child = val[key];
+        if (child === undefined) return;
+        out[key] = normalize(child);
+      });
+      return out;
+    }
+    return val;
+  };
+  return JSON.stringify(normalize(value));
+};
+
+const normalizeConfig = (cfg) => {
+  const clean = JSON.parse(JSON.stringify(cfg || {}));
+  delete clean.update_schedule;
+  if (clean.layout && Array.isArray(clean.layout.tiles)) {
+    const defaults = currentPluginMeta?.defaults || {};
+    clean.layout.tiles = clean.layout.tiles.map((tile) => {
+      if (!tile || !tile.plugin) return tile;
+      const base = defaults[tile.plugin] || {};
+      return { ...tile, config: { ...base, ...(tile.config || {}) } };
+    });
+  }
+  return stableStringify(clean);
+};
 
 const commitActiveTileConfig = () => {
   if (activeTileIndex === null) return;
@@ -818,7 +1039,7 @@ const updateResetState = () => {
   } catch (e) {
     dirty = true;
   }
-  resetBtn.classList.toggle("hidden", !dirty);
+  saveConfigBtn.disabled = !dirty;
 };
 
 const applyPreset = (presetName, pluginMeta) => {
@@ -889,6 +1110,10 @@ const init = async () => {
   const pluginMeta = await fetchJson("/api/plugins");
   const config = await fetchJson("/api/config");
   currentConfig = config;
+  const data = await fetchPresets();
+  const presets = data.presets || {};
+  const match = data.active || findMatchingPreset(presets, config);
+  refreshPresetSelect(presets, match);
   currentLayout = { cols: config.layout.cols, rows: config.layout.rows };
   document.getElementById("gutter").value = config.layout.gutter;
   borderWidthInput.value = config.layout.border?.width ?? 1;
@@ -1044,16 +1269,47 @@ const init = async () => {
   }
 };
 
-document.getElementById("saveConfig").addEventListener("click", async () => {
-  try {
-    const config = collectConfig();
-    await fetchJson("/api/config", {
+
+const saveConfigAndPreset = async (presetName) => {
+  const config = collectConfig();
+  await fetchJson("/api/config", {
+    method: "POST",
+    body: JSON.stringify(config),
+  });
+  if (presetName) {
+    const presetRes = await fetchJson("/api/presets", {
       method: "POST",
-      body: JSON.stringify(config),
+      body: JSON.stringify({ name: presetName, config }),
     });
-    currentConfig = config;
-    updateResetState();
+  const data = await fetchPresets();
+  const presets = data.presets || {};
+  refreshPresetSelect(presets, presetRes.name || presetName);
+  }
+  currentConfig = config;
+  updateResetState();
+};
+
+saveConfigBtn.addEventListener("click", async () => {
+  try {
+    await saveConfigAndPreset(presetSelect.value || "");
     setStatus("Config saved");
+  } catch (e) {
+    setStatus(e.message, false);
+  }
+});
+
+saveAsBtn.addEventListener("click", async () => {
+  try {
+    const presetName = window.prompt("Preset name", "");
+    if (!presetName) {
+      setStatus("Preset name is required", false);
+      return;
+    }
+    await saveConfigAndPreset(presetName);
+    const presets = await fetchPresets();
+    const match = findMatchingPreset(presets, currentConfig || collectConfig());
+    refreshPresetSelect(presets, match || presetName);
+    setStatus("Preset saved");
   } catch (e) {
     setStatus(e.message, false);
   }
@@ -1084,31 +1340,51 @@ document.getElementById("apply").addEventListener("click", async () => {
   }
 });
 
-resetBtn.addEventListener("click", async () => {
-  if (!currentConfig) return;
-  const pluginMeta = await fetchJson("/api/plugins");
-  currentLayout = { cols: currentConfig.layout.cols, rows: currentConfig.layout.rows };
-  document.getElementById("gutter").value = currentConfig.layout.gutter;
-  borderWidthInput.value = currentConfig.layout.border?.width ?? 1;
-  borderRadiusInput.value = currentConfig.layout.border?.radius ?? 0;
-  borderStyleSelect.value = currentConfig.layout.border?.style ?? "solid";
-  borderColorSelect.value = currentConfig.layout.border?.color ?? "black";
-  borderDitherInput.checked = Boolean(currentConfig.layout.border?.dither);
-  borderDitherColorSelect.value = currentConfig.layout.border?.dither_color ?? "white";
-  borderDitherStepInput.value = currentConfig.layout.border?.dither_step ?? 2;
-  borderDitherRatioInput.value = currentConfig.layout.border?.dither_ratio ?? 0.5;
-  backgroundColorSelect.value = currentConfig.layout.background?.color ?? "white";
-  backgroundDitherInput.checked = Boolean(currentConfig.layout.background?.dither);
-  backgroundDitherColorSelect.value = currentConfig.layout.background?.dither_color ?? "blue";
-  backgroundDitherStepInput.value = currentConfig.layout.background?.dither_step ?? 2;
-  backgroundDitherRatioInput.value = currentConfig.layout.background?.dither_ratio ?? 0.5;
-  if (currentConfig.update_interval_minutes != null) {
-    scheduleInput.value = String(currentConfig.update_interval_minutes);
-  } else {
-    scheduleInput.value = parseScheduleMinutes(currentConfig.update_schedule);
+
+presetSelect.addEventListener("change", async () => {
+  const name = presetSelect.value;
+  if (!name) {
+    deletePresetBtn.disabled = true;
+    return;
   }
-  renderTiles(currentConfig.layout.tiles, pluginMeta);
+  const data = await fetchPresets();
+  const presets = data.presets || {};
+  const config = presets[name];
+  if (!config) return;
+  await applyConfigToUI(config, { selectedPreset: name });
+  currentConfig = { ...config, active_preset: name };
+  const snapshot = collectConfig();
+  snapshot.active_preset = name;
+  currentConfig = snapshot;
   updateResetState();
+  deletePresetBtn.disabled = false;
+  setStatus("Generating preview...");
+  const previewPromise = requestPreview(config, null, true).catch(() => {});
+  try {
+    await fetchJson("/api/presets/activate", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    await previewPromise;
+    setStatus("Preset selected");
+  } catch (e) {
+    setStatus(e.message, false);
+  }
+});
+
+deletePresetBtn.addEventListener("click", () => {
+  const name = presetSelect.value;
+  if (!name) return;
+  fetchJson(`/api/presets?name=${encodeURIComponent(name)}`, { method: "DELETE" })
+    .then(async () => {
+      const data = await fetchPresets();
+      const presets = data.presets || {};
+      refreshPresetSelect(presets, "");
+      setStatus("Preset deleted");
+    })
+    .catch((err) => {
+      setStatus(err.message, false);
+    });
 });
 
 window.addEventListener("resize", () => {

@@ -188,6 +188,20 @@ body {
 .layout-grid label + textarea {
   margin-top: -6px;
 }
+.layout-grid .checkbox-row,
+.config-grid .checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.layout-grid .checkbox-row label,
+.config-grid .checkbox-row label {
+  margin: 0;
+}
+.layout-grid .checkbox-row input,
+.config-grid .checkbox-row input {
+  margin: 0;
+}
 .tile {
   margin-top: 12px;
   padding-top: 8px;
@@ -222,6 +236,11 @@ body {
 .config-grid label + textarea,
 .config-grid label + .array-list {
   margin-top: -6px;
+}
+.field-help {
+  margin-top: -4px;
+  font-size: 11px;
+  color: var(--muted);
 }
 .config-grid input,
 .config-grid select,
@@ -296,6 +315,22 @@ textarea {
   display: flex;
   gap: 8px;
   margin-top: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.buttons .preset-select {
+  min-width: 140px;
+  height: 34px;
+  border-radius: 10px;
+  background: #fffdf8;
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.buttons .delete {
+  border-color: #e3b0a3;
+  color: #7f2d2d;
 }
 .buttons .reset {
   margin-left: auto;
@@ -318,9 +353,38 @@ textarea {
   gap: 6px;
   align-items: center;
 }
+.array-item.object-item {
+  flex-wrap: wrap;
+  gap: 10px 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
 .array-item input,
 .array-item select {
   flex: 1;
+}
+.array-item.object-item .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 140px;
+}
+.array-item.object-item .field.hidden {
+  display: none;
+}
+.array-item.object-item .field.full {
+  flex: 1 1 100%;
+}
+.array-item.object-item .field label {
+  font-size: 11px;
+  margin: 0;
+  color: var(--muted);
+}
+.array-item.object-item input,
+.array-item.object-item select {
+  min-width: 140px;
 }
 .array-actions {
   margin-top: 6px;
