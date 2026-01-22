@@ -31,6 +31,8 @@ const fontMetaInput = document.getElementById("fontMeta");
 const fontTempInput = document.getElementById("fontTemp");
 const uploadFontBtn = document.getElementById("uploadFont");
 const fontFileInput = document.getElementById("fontFile");
+const openWeatherKeyInput = document.getElementById("openWeatherKey");
+const saveOpenWeatherKeyBtn = document.getElementById("saveOpenWeatherKey");
 const safeLeftInput = document.getElementById("safeLeft");
 const safeTopInput = document.getElementById("safeTop");
 const safeRightInput = document.getElementById("safeRight");
@@ -168,10 +170,14 @@ const refreshColorPalettes = () => {
     if (customBtn) {
       if (isPaletteColor) {
         customBtn.classList.remove("active");
+        customBtn.classList.remove("custom-active");
+        customBtn.style.removeProperty("--custom-color");
         customBtn.style.background = "";
       } else {
         customBtn.classList.add("active");
-        customBtn.style.background = value;
+        customBtn.classList.add("custom-active");
+        customBtn.style.setProperty("--custom-color", value);
+        customBtn.style.background = "";
       }
     }
   });
@@ -203,10 +209,14 @@ const initColorPalettes = () => {
       if (customBtn) {
         if (isPaletteColor) {
           customBtn.classList.remove("active");
+          customBtn.classList.remove("custom-active");
+          customBtn.style.removeProperty("--custom-color");
           customBtn.style.background = "";
         } else {
           customBtn.classList.add("active");
-          customBtn.style.background = value;
+          customBtn.classList.add("custom-active");
+          customBtn.style.setProperty("--custom-color", value);
+          customBtn.style.background = "";
         }
       }
     };
@@ -276,6 +286,12 @@ const setActiveTab = (tabName) => {
   tabPanels.forEach((panel) => {
     panel.classList.toggle("active", panel.dataset.tab === tabName);
   });
+};
+
+const loadOpenWeatherKey = async () => {
+  if (!openWeatherKeyInput) return;
+  const data = await fetchJson("/api/env");
+  openWeatherKeyInput.value = data.openweather_api_key || "";
 };
 
 const refreshFontOptions = (selected) => {
@@ -1521,6 +1537,7 @@ const init = async () => {
   updateSafeViewport();
   setActiveTab("layout");
   await loadFonts();
+  await loadOpenWeatherKey();
   const pluginMeta = await fetchJson("/api/plugins");
   currentPluginMeta = pluginMeta;
   const config = await fetchJson("/api/config");
@@ -1646,6 +1663,19 @@ const init = async () => {
       fontFileInput.value = "";
     }
   });
+  if (saveOpenWeatherKeyBtn && openWeatherKeyInput) {
+    saveOpenWeatherKeyBtn.addEventListener("click", async () => {
+      try {
+        await fetchJson("/api/env", {
+          method: "POST",
+          body: JSON.stringify({ openweather_api_key: openWeatherKeyInput.value.trim() }),
+        });
+        setStatus("OpenWeather key saved");
+      } catch (e) {
+        setStatus(e.message, false);
+      }
+    });
+  }
   if (previewStubInput) {
     previewStubInput.addEventListener("change", () => {
       requestPreview(collectConfig(), "Preview updated", true).catch(() => {});

@@ -1,7 +1,9 @@
 import json
+import os
 import time
 from datetime import datetime
 from urllib.request import Request, urlopen
+from pathlib import Path
 
 from PIL import Image
 
@@ -23,6 +25,10 @@ PALETTE_IMAGE.putpalette(_palette)
 
 
 _FETCH_CACHE = {}
+_FETCH_BYTES_CACHE = {}
+_ENV_CACHE = None
+_ENV_MTIME = None
+_ENV_PATH = Path(__file__).resolve().parent / ".env"
 
 
 def fetch_json(url, timeout=10, retries=3, delay=10, cache_ttl=None):
@@ -47,6 +53,63 @@ def fetch_json(url, timeout=10, retries=3, delay=10, cache_ttl=None):
                 return None
             time.sleep(delay)
 
+def fetch_bytes(url, timeout=10, retries=3, delay=10, cache_ttl=None):
+    if cache_ttl:
+        cached = _FETCH_BYTES_CACHE.get(url)
+        if cached:
+            expires_at, data = cached
+            if time.time() < expires_at:
+                return data
+    req = Request(url, headers={"User-Agent": "inky-dashboard/1.0"})
+    for attempt in range(retries):
+        try:
+            with urlopen(req, timeout=timeout) as response:
+                data = response.read()
+                if not data:
+                    raise ValueError("Empty response")
+                if cache_ttl:
+                    _FETCH_BYTES_CACHE[url] = (time.time() + cache_ttl, data)
+                return data
+        except Exception:
+            if attempt == retries - 1:
+                return None
+            time.sleep(delay)
+
+
+def _read_env_file(path=_ENV_PATH):
+    if not path.exists():
+        return {}
+    try:
+        lines = path.read_text().splitlines()
+    except Exception:
+        return {}
+    data = {}
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        data[key.strip()] = value.strip()
+    return data
+
+
+def get_env(key, default=None):
+    value = os.environ.get(key)
+    if value is not None:
+        return value
+    global _ENV_CACHE, _ENV_MTIME
+    try:
+        mtime = _ENV_PATH.stat().st_mtime
+    except Exception:
+        _ENV_CACHE = {}
+        _ENV_MTIME = None
+        return default
+    if _ENV_CACHE is None or _ENV_MTIME != mtime:
+        _ENV_CACHE = _read_env_file(_ENV_PATH)
+        _ENV_MTIME = mtime
+    return _ENV_CACHE.get(key, default)
 
 def text_size(draw, text, font):
     bbox = draw.textbbox((0, 0), text, font=font)

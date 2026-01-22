@@ -278,6 +278,9 @@ body {
     #ff0000
   );
 }
+.color-swatch.custom.custom-active {
+  background: var(--custom-color, #ffffff);
+}
 .color-picker-overlay {
   position: absolute;
   inset: 0;
@@ -311,6 +314,10 @@ body {
   display: flex;
   gap: 10px;
   align-items: center;
+}
+.font-row input {
+  flex: 1;
+  min-width: 0;
 }
 .font-row select {
   flex: 1;

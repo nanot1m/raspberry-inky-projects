@@ -1,11 +1,13 @@
 from datetime import datetime
+import json
+import time
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import quote
 
 from PIL import Image
 
-from utils import PALETTE_IMAGE, fetch_json, format_updated, text_size, truncate_text
+from utils import PALETTE_IMAGE, fetch_bytes, fetch_json, format_updated, get_env, text_size, truncate_text
 
 try:
     from cairosvg import svg2png
@@ -15,7 +17,10 @@ except Exception:
     SVG_AVAILABLE = False
 
 ICON_CACHE = {}
-ICON_DIR = Path(__file__).resolve().parents[1] / "assets" / "weather-icons"
+OPENWEATHER_ICON_BASE = "https://openweathermap.org/img/wn"
+BASE_DIR = Path(__file__).resolve().parents[1]
+ICON_DIR = BASE_DIR / "assets" / "weather-icons"
+OPENWEATHER_CACHE_PATH = BASE_DIR / ".cache" / "openweather.json"
 ICON_FILES = {
     "clear_day": "wi-day-sunny.svg",
     "clear_night": "wi-night-clear.svg",
@@ -103,7 +108,113 @@ def weather_label(code):
     return mapping.get(code, f"Code {code}")
 
 
+def weather_label_openweather(code, description=None, main=None):
+    if description:
+        return description.strip().title()
+    if main:
+        return main.strip().title()
+    if code is None:
+        return "Unknown"
+    if 200 <= code < 300:
+        return "Thunderstorm"
+    if 300 <= code < 400:
+        return "Drizzle"
+    if 500 <= code < 600:
+        return "Rain"
+    if 600 <= code < 700:
+        return "Snow"
+    if 700 <= code < 800:
+        return "Fog"
+    if code == 800:
+        return "Clear"
+    if code == 801:
+        return "Partly cloudy"
+    if 802 <= code <= 804:
+        return "Cloudy"
+    return "Unknown"
+
+
+def get_openweather_weather(lat=DEFAULT_LAT, lon=DEFAULT_LON):
+    api_key = get_env("OPENWEATHER_API_KEY")
+    if not api_key:
+        return None
+    url = (
+        "https://api.openweathermap.org/data/3.0/onecall"
+        f"?lat={lat}&lon={lon}"
+        "&exclude=minutely,hourly,alerts"
+        "&units=metric"
+        f"&appid={quote(api_key)}"
+    )
+    data = None
+    now_ts = time.time()
+    cached_data = None
+    if OPENWEATHER_CACHE_PATH.exists():
+        try:
+            cached = json.loads(OPENWEATHER_CACHE_PATH.read_text())
+            cached_at = cached.get("fetched_at", 0)
+            cached_data = cached.get("data")
+            if cached_data and now_ts - cached_at < 3600:
+                data = cached_data
+        except Exception:
+            cached_data = None
+    if data is None:
+        data = fetch_json(url, cache_ttl=300)
+        if data:
+            OPENWEATHER_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            OPENWEATHER_CACHE_PATH.write_text(json.dumps({
+                "fetched_at": now_ts,
+                "data": data,
+            }))
+        elif cached_data:
+            data = cached_data
+    if not data:
+        return None
+    current = data.get("current") or {}
+    daily = data.get("daily") or []
+    weather = (current.get("weather") or [{}])[0]
+    daily_entry = daily[0] if daily else {}
+    daily_weather = (daily_entry.get("weather") or [{}])[0]
+    icon = weather.get("icon")
+    is_day = True
+    if isinstance(icon, str):
+        is_day = icon.endswith("d")
+    offset = data.get("timezone_offset", 0) or 0
+    daily_entries = []
+    for entry in daily[:5]:
+        dt = entry.get("dt")
+        date = datetime.fromtimestamp(dt + offset) if dt else None
+        day_weather = (entry.get("weather") or [{}])[0]
+        daily_entries.append({
+            "date": date,
+            "code": day_weather.get("id"),
+            "icon": day_weather.get("icon"),
+            "min_temp": (entry.get("temp") or {}).get("min"),
+            "max_temp": (entry.get("temp") or {}).get("max"),
+        })
+    pop = daily_entry.get("pop")
+    rain_chance = None if pop is None else pop * 100
+    return {
+        "error": None,
+        "current_temp": current.get("temp"),
+        "feels_temp": current.get("feels_like"),
+        "code": weather.get("id"),
+        "icon": icon,
+        "label": weather_label_openweather(weather.get("id"), weather.get("description"), weather.get("main")),
+        "min_temp": (daily_entry.get("temp") or {}).get("min"),
+        "max_temp": (daily_entry.get("temp") or {}).get("max"),
+        "rain_chance": rain_chance,
+        "wind_speed": current.get("wind_speed"),
+        "is_day": is_day,
+        "updated": current.get("dt"),
+        "hourly": [],
+        "daily": daily_entries,
+    }
+
+
 def get_berlin_weather(lat=DEFAULT_LAT, lon=DEFAULT_LON, tz=DEFAULT_TZ):
+    openweather = get_openweather_weather(lat=lat, lon=lon)
+    if openweather:
+        return openweather
     url = (
         "https://api.open-meteo.com/v1/forecast"
         f"?latitude={lat}&longitude={lon}"
@@ -151,6 +262,8 @@ def get_berlin_weather(lat=DEFAULT_LAT, lon=DEFAULT_LON, tz=DEFAULT_TZ):
         "current_temp": temp,
         "feels_temp": feels,
         "code": code,
+        "icon": None,
+        "label": None,
         "min_temp": min_list[0] if min_list else None,
         "max_temp": max_list[0] if max_list else None,
         "rain_chance": rain_list[0] if rain_list else None,
@@ -259,7 +372,36 @@ def load_svg_icon(icon_name, size):
     return ICON_CACHE[cache_key]
 
 
-def draw_weather_icon(img, draw, x, y, size, code, is_day, inky):
+def load_openweather_icon(icon_code, size):
+    if not icon_code:
+        return None
+    cache_key = ("openweather", icon_code, size)
+    if cache_key in ICON_CACHE:
+        return ICON_CACHE[cache_key]
+    url = f"{OPENWEATHER_ICON_BASE}/{icon_code}@2x.png"
+    data = fetch_bytes(url, cache_ttl=31536000)
+    if not data:
+        return None
+    icon_rgba = Image.open(BytesIO(data)).convert("RGBA")
+    alpha = icon_rgba.split()[3]
+    bbox = alpha.getbbox()
+    if bbox:
+        icon_rgba = icon_rgba.crop(bbox)
+        alpha = icon_rgba.split()[3]
+    icon_rgba = icon_rgba.resize((size, size), Image.LANCZOS)
+    alpha = icon_rgba.split()[3]
+    icon_rgb = icon_rgba.convert("RGB")
+    icon = icon_rgb.quantize(palette=PALETTE_IMAGE, dither=Image.NONE)
+    ICON_CACHE[cache_key] = (icon, alpha)
+    return ICON_CACHE[cache_key]
+
+
+def draw_weather_icon(img, draw, x, y, size, code, is_day, inky, icon_code=None):
+    cached = load_openweather_icon(icon_code, size)
+    if cached:
+        icon, alpha = cached
+        img.paste(icon, (x, y + (size - icon.height) // 2), alpha)
+        return
     key = weather_icon_key(code, is_day)
     if key:
         icon_name = ICON_FILES.get(key)
@@ -433,9 +575,12 @@ def draw_weather_tile_split(ctx, bbox, config):
         weather.get("code"),
         weather.get("is_day"),
         inky,
+        weather.get("icon"),
     )
 
-    label = weather_label(weather.get("code")) if weather.get("code") is not None else "Unknown"
+    label = weather.get("label")
+    if not label:
+        label = weather_label(weather.get("code")) if weather.get("code") is not None else "Unknown"
     label_max_w = max(0, left_col_w - 8)
     label = truncate_text(draw, label, label_max_w, font_body)
     label_w, _ = text_size(draw, label, font_body)
@@ -570,9 +715,12 @@ def draw_weather_tile_card(ctx, bbox, config):
         weather.get("code"),
         weather.get("is_day"),
         inky,
+        weather.get("icon"),
     )
 
-    label = weather_label(weather.get("code")) if weather.get("code") is not None else "Unknown"
+    label = weather.get("label")
+    if not label:
+        label = weather_label(weather.get("code")) if weather.get("code") is not None else "Unknown"
     label = truncate_text(draw, label.upper(), center_w, font_body)
     label_w, _ = text_size(draw, label, font_body)
     label_y = icon_y + icon_size + 6
@@ -614,11 +762,25 @@ def draw_weather_tile_card(ctx, bbox, config):
         if slots > 0:
             col_w = max(1, w_width // slots)
             for idx in range(slots):
-                ts, code, max_t, _min_t = daily[idx]
-                try:
-                    day_label = datetime.fromisoformat(ts).strftime("%a").upper()
-                except Exception:
-                    day_label = "--"
+                entry = daily[idx]
+                icon_code = None
+                max_t = None
+                _min_t = None
+                day_label = "--"
+                if isinstance(entry, dict):
+                    dt = entry.get("date")
+                    code = entry.get("code")
+                    icon_code = entry.get("icon")
+                    max_t = entry.get("max_temp")
+                    _min_t = entry.get("min_temp")
+                    if isinstance(dt, datetime):
+                        day_label = dt.strftime("%a").upper()
+                else:
+                    ts, code, max_t, _min_t = entry
+                    try:
+                        day_label = datetime.fromisoformat(ts).strftime("%a").upper()
+                    except Exception:
+                        day_label = str(ts).upper() if ts else "--"
                 col_x = wx + idx * col_w
                 day_w, _ = text_size(draw, day_label, font_meta)
                 day_x = col_x + max(0, (col_w - day_w) // 2)
@@ -636,6 +798,7 @@ def draw_weather_tile_card(ctx, bbox, config):
                     code,
                     True,
                     inky,
+                    icon_code,
                 )
 
                 if max_t is not None and _min_t is not None:
@@ -689,7 +852,9 @@ def draw_weather_tile_panel(ctx, bbox, config):
     content_bottom = y1 - pad - band_h
     right_x = wx + max(0, int(w_width * 0.55))
 
-    label = weather_label(weather.get("code")) if weather.get("code") is not None else "Unknown"
+    label = weather.get("label")
+    if not label:
+        label = weather_label(weather.get("code")) if weather.get("code") is not None else "Unknown"
     label = truncate_text(draw, label, max(0, right_x - wx - 36), font_meta)
     icon_size = 34
     icon_x = wx
@@ -703,7 +868,9 @@ def draw_weather_tile_panel(ctx, bbox, config):
         weather.get("code"),
         weather.get("is_day"),
         inky,
+        weather.get("icon"),
     )
+    label = weather.get("label") or label
     draw.text((icon_x + icon_size + 8, wy + 8), label, inky.BLACK, font=font_meta)
 
     now_dt = datetime.now()

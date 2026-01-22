@@ -47,6 +47,7 @@
             <button class="tab-btn" data-tab="border" type="button">Border</button>
             <button class="tab-btn" data-tab="background" type="button">Background</button>
             <button class="tab-btn" data-tab="type" type="button">Typography</button>
+            <button class="tab-btn" data-tab="weather" type="button">Weather</button>
             <button class="tab-btn" data-tab="schedule" type="button">Schedule</button>
           </div>
           <div class="tab-panels">
@@ -159,6 +160,13 @@
               <input id="fontMeta" type="number" min="8" max="96" step="1" value="16" />
               <label>Font size: temp</label>
               <input id="fontTemp" type="number" min="8" max="128" step="1" value="64" />
+            </div>
+            <div class="tab-panel layout-grid" data-tab="weather">
+              <label>OpenWeather API key</label>
+              <div class="font-row">
+                <input id="openWeatherKey" type="text" placeholder="OPENWEATHER_API_KEY" />
+                <button id="saveOpenWeatherKey" type="button">Save Key</button>
+              </div>
             </div>
             <div class="tab-panel layout-grid" data-tab="schedule">
               <label>Update frequency (minutes)</label>
