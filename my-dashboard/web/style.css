@@ -35,7 +35,6 @@ body {
 .preview-wrap {
   display: inline-block;
   width: 100%;
-  max-height: 70vh;
   overflow: auto;
   border: 1px solid var(--line);
 }
@@ -101,18 +100,6 @@ body {
 .panel-actions .status {
   margin-top: 0;
   white-space: nowrap;
-}
-.update-notice {
-  font-size: 12px;
-  color: #7f3f00;
-  background: #fff3e3;
-  border: 1px solid #e7b071;
-  border-radius: 999px;
-  padding: 4px 10px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  width: fit-content;
 }
 .progress {
   width: 180px;

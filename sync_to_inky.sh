@@ -21,8 +21,6 @@ rsync -av --delete -e "ssh ${ssh_opts}" \
   --exclude "*.pyc" \
   --exclude ".DS_Store" \
   --exclude ".presets/" \
-  --exclude "my-dashboard/.env" \
-  --exclude "my-dashboard/.cache/" \
   --exclude "my-dashboard/photos/" \
   --exclude "my-dashboard/assets/fonts/custom/" \
   --exclude-from "$repo_root/.gitignore" \

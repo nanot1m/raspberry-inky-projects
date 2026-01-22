@@ -3,7 +3,6 @@ const applyProgressEl = document.getElementById("applyProgress");
 const applyProgressBarEl = document.getElementById("applyProgressBar");
 const applyBtn = document.getElementById("apply");
 const updateBtn = document.getElementById("updateApp");
-const updateNoticeEl = document.getElementById("updateNotice");
 const saveConfigBtn = document.getElementById("saveConfig");
 const saveAsBtn = document.getElementById("saveAs");
 const tilesEl = document.getElementById("tiles");
@@ -33,8 +32,6 @@ const fontMetaInput = document.getElementById("fontMeta");
 const fontTempInput = document.getElementById("fontTemp");
 const uploadFontBtn = document.getElementById("uploadFont");
 const fontFileInput = document.getElementById("fontFile");
-const openWeatherKeyInput = document.getElementById("openWeatherKey");
-const saveOpenWeatherKeyBtn = document.getElementById("saveOpenWeatherKey");
 const safeLeftInput = document.getElementById("safeLeft");
 const safeTopInput = document.getElementById("safeTop");
 const safeRightInput = document.getElementById("safeRight");
@@ -291,19 +288,12 @@ const setActiveTab = (tabName) => {
   });
 };
 
-const loadOpenWeatherKey = async () => {
-  if (!openWeatherKeyInput) return;
-  const data = await fetchJson("/api/env");
-  openWeatherKeyInput.value = data.openweather_api_key || "";
-};
-
 const checkForUpdates = async () => {
   if (!updateBtn) return;
   updateBtn.disabled = true;
   updateBtn.classList.add("is-hidden");
   updateBtn.classList.remove("update-available");
   updateBtn.textContent = "Checking...";
-  if (updateNoticeEl) updateNoticeEl.hidden = true;
   try {
     const data = await fetchJson("/api/update/check");
     if (data.error) {
@@ -317,7 +307,6 @@ const checkForUpdates = async () => {
     updateBtn.textContent = available ? "Update available" : "Update";
     updateBtn.disabled = !available;
     updateBtn.classList.toggle("is-hidden", !available);
-    if (updateNoticeEl) updateNoticeEl.hidden = !available;
   } catch (e) {
     updateBtn.textContent = "Update";
     updateBtn.disabled = false;
@@ -1568,7 +1557,6 @@ const init = async () => {
   updateSafeViewport();
   setActiveTab("layout");
   await loadFonts();
-  await loadOpenWeatherKey();
   if (updateBtn) {
     await checkForUpdates();
     updateCheckTimer = setInterval(checkForUpdates, 60000);
@@ -1698,19 +1686,6 @@ const init = async () => {
       fontFileInput.value = "";
     }
   });
-  if (saveOpenWeatherKeyBtn && openWeatherKeyInput) {
-    saveOpenWeatherKeyBtn.addEventListener("click", async () => {
-      try {
-        await fetchJson("/api/env", {
-          method: "POST",
-          body: JSON.stringify({ openweather_api_key: openWeatherKeyInput.value.trim() }),
-        });
-        setStatus("OpenWeather key saved");
-      } catch (e) {
-        setStatus(e.message, false);
-      }
-    });
-  }
   if (previewStubInput) {
     previewStubInput.addEventListener("change", () => {
       requestPreview(collectConfig(), "Preview updated", true).catch(() => {});

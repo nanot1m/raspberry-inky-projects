@@ -37,7 +37,6 @@ PRESET_DIR = BASE_DIR / ".presets"
 FONTS_DIR = BASE_DIR / "assets" / "fonts"
 CUSTOM_FONTS_DIR = FONTS_DIR / "custom"
 PHOTO_DIR = BASE_DIR / "photos"
-ENV_PATH = BASE_DIR / ".env"
 
 _apply_lock = threading.Lock()
 _apply_process = None
@@ -47,26 +46,6 @@ _apply_last_finished_at = None
 _update_last_error = None
 
 
-def read_env_file():
-    if not ENV_PATH.exists():
-        return {}
-    try:
-        lines = ENV_PATH.read_text().splitlines()
-    except Exception:
-        return {}
-    data = {}
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        data[key.strip()] = value.strip()
-    return data
-
-
-def write_env_file(data):
-    lines = [f"{key}={value}" for key, value in data.items()]
-    ENV_PATH.write_text("\n".join(lines).strip() + "\n")
 
 
 def _progress_for_elapsed(elapsed):
@@ -330,9 +309,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if self.path.startswith("/api/config"):
             cfg = load_config()
             return self._send_json(cfg)
-        if self.path.startswith("/api/env"):
-            data = read_env_file()
-            return self._send_json({"openweather_api_key": data.get("OPENWEATHER_API_KEY", "")})
         if self.path.startswith("/api/safe-area"):
             cfg = load_config()
             safe = cfg.get("safe_area") or {}
@@ -417,21 +393,6 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return self._send_json({"error": "Failed to save config"}, status=500)
             return self._send_json({"ok": True})
 
-        if self.path.startswith("/api/env"):
-            payload = self._read_json()
-            if payload is None:
-                return self._send_json({"error": "Invalid JSON"}, status=400)
-            key = str(payload.get("openweather_api_key") or "").strip()
-            data = read_env_file()
-            if key:
-                data["OPENWEATHER_API_KEY"] = key
-            else:
-                data.pop("OPENWEATHER_API_KEY", None)
-            try:
-                write_env_file(data)
-            except Exception:
-                return self._send_json({"error": "Failed to save .env"}, status=500)
-            return self._send_json({"ok": True})
 
         if self.path.startswith("/api/fonts"):
             payload = self._read_json()

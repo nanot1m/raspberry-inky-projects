@@ -7,5 +7,3 @@ my-dashboard/config.json
 my-dashboard/.presets/
 my-dashboard/assets/fonts/custom/
 my-dashboard/photos/
-my-dashboard/.env
-my-dashboard/.cache/
