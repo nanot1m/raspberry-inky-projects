@@ -13,7 +13,19 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from my_dashboard import load_config, render_dashboard, default_config, normalize_config, CONFIG_VERSION
+from my_dashboard import (
+    load_config,
+    render_dashboard,
+    default_config,
+    normalize_config,
+    CONFIG_VERSION,
+    EXPECTED_W,
+    EXPECTED_H,
+    M_LEFT,
+    M_TOP,
+    M_RIGHT,
+    M_BOTTOM,
+)
 from plugins import PLUGIN_DEFAULTS, PLUGIN_SCHEMAS, PLUGIN_NAMES
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -21,6 +33,9 @@ CONFIG_PATH = BASE_DIR / "config.json"
 OUTPUT_DIR = BASE_DIR / ".generated"
 SCRIPT_PATH = BASE_DIR / "my_dashboard.py"
 PRESET_DIR = BASE_DIR / ".presets"
+FONTS_DIR = BASE_DIR / "assets" / "fonts"
+CUSTOM_FONTS_DIR = FONTS_DIR / "custom"
+PHOTO_DIR = BASE_DIR / "photos"
 
 _apply_lock = threading.Lock()
 _apply_process = None
@@ -224,12 +239,45 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if self.path.startswith("/api/config"):
             cfg = load_config()
             return self._send_json(cfg)
+        if self.path.startswith("/api/safe-area"):
+            cfg = load_config()
+            safe = cfg.get("safe_area") or {}
+            return self._send_json({
+                "left": safe.get("left", M_LEFT),
+                "top": safe.get("top", M_TOP),
+                "right": safe.get("right", M_RIGHT),
+                "bottom": safe.get("bottom", M_BOTTOM),
+                "width": EXPECTED_W,
+                "height": EXPECTED_H,
+            })
         if self.path.startswith("/api/plugins"):
             return self._send_json({
                 "defaults": PLUGIN_DEFAULTS,
                 "schemas": PLUGIN_SCHEMAS,
                 "names": PLUGIN_NAMES,
             })
+        if self.path.startswith("/api/fonts"):
+            fonts = [
+                {"label": "monogram", "value": "monogram"},
+                {"label": "monogram-extended", "value": "monogram-extended"},
+                {"label": "monogram-extended-italic", "value": "monogram-extended-italic"},
+                {"label": "default", "value": "default"},
+            ]
+            CUSTOM_FONTS_DIR.mkdir(parents=True, exist_ok=True)
+            for path in sorted(CUSTOM_FONTS_DIR.glob("*")):
+                if path.suffix.lower() not in (".ttf", ".otf"):
+                    continue
+                rel = f"custom/{path.name}"
+                fonts.append({"label": path.stem, "value": rel})
+            return self._send_json({"fonts": fonts})
+        if self.path.startswith("/api/photos"):
+            PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+            photos = []
+            for path in sorted(PHOTO_DIR.glob("*")):
+                if path.suffix.lower() not in (".png", ".jpg", ".jpeg", ".bmp"):
+                    continue
+                photos.append(path.name)
+            return self._send_json({"photos": photos})
         if self.path.startswith("/api/presets"):
             PRESET_DIR.mkdir(parents=True, exist_ok=True)
             presets = {}
@@ -271,6 +319,52 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception:
                 return self._send_json({"error": "Failed to save config"}, status=500)
             return self._send_json({"ok": True})
+
+        if self.path.startswith("/api/fonts"):
+            payload = self._read_json()
+            if payload is None:
+                return self._send_json({"error": "Invalid JSON"}, status=400)
+            name = str(payload.get("name") or "").strip()
+            data = payload.get("data")
+            if not name or not isinstance(data, str):
+                return self._send_json({"error": "Missing font data"}, status=400)
+            suffix = Path(name).suffix.lower()
+            if suffix not in (".ttf", ".otf"):
+                suffix = ".ttf"
+            safe_stem = re.sub(r"[^a-zA-Z0-9_-]+", "_", Path(name).stem).strip("_")
+            if not safe_stem:
+                return self._send_json({"error": "Invalid font name"}, status=400)
+            try:
+                raw = base64.b64decode(data)
+            except Exception:
+                return self._send_json({"error": "Invalid font data"}, status=400)
+            CUSTOM_FONTS_DIR.mkdir(parents=True, exist_ok=True)
+            target = CUSTOM_FONTS_DIR / f"{safe_stem}{suffix}"
+            target.write_bytes(raw)
+            return self._send_json({"ok": True, "value": f"custom/{target.name}"})
+
+        if self.path.startswith("/api/photos"):
+            payload = self._read_json()
+            if payload is None:
+                return self._send_json({"error": "Invalid JSON"}, status=400)
+            name = str(payload.get("name") or "").strip()
+            data = payload.get("data")
+            if not name or not isinstance(data, str):
+                return self._send_json({"error": "Missing photo data"}, status=400)
+            suffix = Path(name).suffix.lower()
+            if suffix not in (".png", ".jpg", ".jpeg", ".bmp"):
+                suffix = ".png"
+            safe_stem = re.sub(r"[^a-zA-Z0-9_-]+", "_", Path(name).stem).strip("_")
+            if not safe_stem:
+                return self._send_json({"error": "Invalid photo name"}, status=400)
+            try:
+                raw = base64.b64decode(data)
+            except Exception:
+                return self._send_json({"error": "Invalid photo data"}, status=400)
+            PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+            target = PHOTO_DIR / f"{safe_stem}{suffix}"
+            target.write_bytes(raw)
+            return self._send_json({"ok": True, "value": target.name})
 
         if self.path.startswith("/api/presets/activate"):
             payload = self._read_json()

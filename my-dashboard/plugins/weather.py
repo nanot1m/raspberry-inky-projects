@@ -162,6 +162,29 @@ def get_berlin_weather(lat=DEFAULT_LAT, lon=DEFAULT_LON, tz=DEFAULT_TZ):
     }
 
 
+def get_stub_weather():
+    return {
+        "error": None,
+        "current_temp": 2,
+        "feels_temp": 1,
+        "code": 1,
+        "min_temp": -3,
+        "max_temp": 4,
+        "rain_chance": 20,
+        "wind_speed": 10,
+        "is_day": 1,
+        "updated": None,
+        "hourly": [],
+        "daily": [
+            ("Tue", 1, 3, -2),
+            ("Wed", 2, 4, -1),
+            ("Thu", 3, 5, 0),
+            ("Fri", 45, 2, -1),
+            ("Sat", 61, 1, -2),
+        ],
+    }
+
+
 def weather_icon_key(code, is_day=None):
     is_day = True if is_day is None else bool(is_day)
     if code in (0, 1):
@@ -340,15 +363,9 @@ def draw_temp_with_degree(draw, x, y, temp_value, font, inky):
     temp_text = f"{temp_value:.0f}"
     draw.text((x, y), temp_text, inky.BLACK, font=font)
     temp_w, _ = text_size(draw, temp_text, font)
-    temp_line_h = line_height(draw, font)
-    radius = max(2, temp_line_h // 10)
-    circle_x = x + temp_w + 6
-    circle_y = y + radius + 10
-    draw.ellipse(
-        (circle_x - radius, circle_y - radius, circle_x + radius, circle_y + radius),
-        outline=inky.BLACK,
-        fill=inky.WHITE,
-    )
+    degree_text = "°"
+    degree_x = x + temp_w + 2
+    draw.text((degree_x, y), degree_text, inky.BLACK, font=font)
 
 
 def draw_dotted_line(draw, x, y0, y1, color, dash=6, gap=4, width=1):
@@ -389,11 +406,14 @@ def draw_weather_tile_split(ctx, bbox, config):
     w_width = x1 - x0 - (pad * 2)
     w_height = y1 - y0 - (pad * 2)
 
-    weather = get_berlin_weather(
-        lat=config.get("lat", DEFAULT_LAT),
-        lon=config.get("lon", DEFAULT_LON),
-        tz=config.get("tz", DEFAULT_TZ),
-    )
+    if ctx.get("preview_stub"):
+        weather = get_stub_weather()
+    else:
+        weather = get_berlin_weather(
+            lat=config.get("lat", DEFAULT_LAT),
+            lon=config.get("lon", DEFAULT_LON),
+            tz=config.get("tz", DEFAULT_TZ),
+        )
 
     left_col_w = max(0, int(w_width * 0.45))
     gutter = 12
@@ -484,11 +504,14 @@ def draw_weather_tile_card(ctx, bbox, config):
     w_width = x1 - x0 - (pad * 2)
     w_height = y1 - y0 - (pad * 2)
 
-    weather = get_berlin_weather(
-        lat=config.get("lat", DEFAULT_LAT),
-        lon=config.get("lon", DEFAULT_LON),
-        tz=config.get("tz", DEFAULT_TZ),
-    )
+    if ctx.get("preview_stub"):
+        weather = get_stub_weather()
+    else:
+        weather = get_berlin_weather(
+            lat=config.get("lat", DEFAULT_LAT),
+            lon=config.get("lon", DEFAULT_LON),
+            tz=config.get("tz", DEFAULT_TZ),
+        )
 
     left_w = max(0, int(w_width * 0.38))
     right_w = max(0, int(w_width * 0.26))
@@ -537,7 +560,7 @@ def draw_weather_tile_card(ctx, bbox, config):
 
     icon_size = min(96, max(40, center_w), max(40, content_bottom - wy - 60))
     icon_x = center_x + max(0, (center_w - icon_size) // 2)
-    icon_y = wy + 14
+    icon_y = wy + max(8, (content_bottom - wy - icon_size) // 2 - 6)
     draw_weather_icon(
         img,
         draw,
@@ -649,11 +672,14 @@ def draw_weather_tile_panel(ctx, bbox, config):
     w_width = x1 - x0 - (pad * 2)
     w_height = y1 - y0 - (pad * 2)
 
-    weather = get_berlin_weather(
-        lat=config.get("lat", DEFAULT_LAT),
-        lon=config.get("lon", DEFAULT_LON),
-        tz=config.get("tz", DEFAULT_TZ),
-    )
+    if ctx.get("preview_stub"):
+        weather = get_stub_weather()
+    else:
+        weather = get_berlin_weather(
+            lat=config.get("lat", DEFAULT_LAT),
+            lon=config.get("lon", DEFAULT_LON),
+            tz=config.get("tz", DEFAULT_TZ),
+        )
 
     meta_line_h = line_height(draw, font_meta)
     body_line_h = line_height(draw, font_body)

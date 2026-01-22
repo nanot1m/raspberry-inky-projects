@@ -4,6 +4,20 @@
   "inky": {
     "use_hardware_cs": false
   },
+  "safe_area": {
+    "left": 4,
+    "top": 4,
+    "right": 4,
+    "bottom": 4
+  },
+  "fonts": {
+    "family": "monogram-extended",
+    "title": 32,
+    "sub": 32,
+    "body": 16,
+    "meta": 16,
+    "temp": 64
+  },
   "layout": {
     "cols": 2,
     "rows": 2,

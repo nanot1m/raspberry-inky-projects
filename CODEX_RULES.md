@@ -4,6 +4,9 @@
 - Host alias: `inky` (from `~/.ssh/config`)
 - Example:
   - `ssh inky`
+- Overrides:
+  - `INKY_HOST` can override the SSH host (e.g. `INKY_HOST=192.168.2.109`).
+  - `RSYNC_SSH_OPTS` can override SSH options (default: `-o StrictHostKeyChecking=accept-new`).
 
 ## 2) Execute Script
 - Dashboard script:

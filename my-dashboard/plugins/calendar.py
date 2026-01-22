@@ -812,10 +812,47 @@ def draw_calendar_tile(ctx, bbox, config):
         start_dt = datetime.combine(now.date(), time.min, tzinfo)
         end_dt = start_dt + timedelta(days=7)
 
-    calendars = config.get("calendars") or []
-    if not calendars:
-        raise ValueError("No calendars configured")
-    events = fetch_events(calendars, tzinfo, start_dt, end_dt)
+    if ctx.get("preview_stub"):
+        start_base = start_dt + timedelta(hours=8)
+        events = [
+            {
+                "title": "Design review",
+                "start": start_base,
+                "end": start_base + timedelta(hours=1),
+                "calendar": "Work",
+                "color": "blue",
+                "all_day": False,
+            },
+            {
+                "title": "Focus time",
+                "start": start_base + timedelta(hours=3),
+                "end": start_base + timedelta(hours=5),
+                "calendar": "Work",
+                "color": "orange",
+                "all_day": False,
+            },
+            {
+                "title": "Gym",
+                "start": start_base + timedelta(days=1, hours=1),
+                "end": start_base + timedelta(days=1, hours=2),
+                "calendar": "Personal",
+                "color": "red",
+                "all_day": False,
+            },
+            {
+                "title": "All day event",
+                "start": start_dt.date(),
+                "end": start_dt.date(),
+                "calendar": "Personal",
+                "color": "yellow",
+                "all_day": True,
+            },
+        ]
+    else:
+        calendars = config.get("calendars") or []
+        if not calendars:
+            raise ValueError("No calendars configured")
+        events = fetch_events(calendars, tzinfo, start_dt, end_dt)
     events_by_day = group_events_by_day(events, tzinfo)
 
     if view == "month":

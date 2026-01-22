@@ -133,18 +133,19 @@ def get_inky(upload, use_hardware_cs=True):
 
 
 # Safe area margins from calibrate_safe_area.py
-M_LEFT = 60
-M_TOP = 35
-M_RIGHT = 55
-M_BOTTOM = 10
+M_LEFT = 4
+M_TOP = 4
+M_RIGHT = 4
+M_BOTTOM = 4
 
 TRAM_REQUESTS = ["Genslerstr", "Werneuchener Str"]
 BUS_REQUESTS = ["Werneuchener Str./Große-Leege-Str."]
 
-PHOTO_DIR = Path(__file__).resolve().parent / "photos"
-CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config.default.json"
-PRESET_DIR = Path(__file__).resolve().parent / ".presets"
+BASE_DIR = Path(__file__).resolve().parent
+PHOTO_DIR = BASE_DIR / "photos"
+CONFIG_PATH = BASE_DIR / "config.json"
+DEFAULT_CONFIG_PATH = BASE_DIR / "config.default.json"
+PRESET_DIR = BASE_DIR / ".presets"
 CONFIG_VERSION = 1
 
 
@@ -390,6 +391,20 @@ def _default_config_raw():
         "inky": {
             "use_hardware_cs": False,
         },
+        "safe_area": {
+            "left": M_LEFT,
+            "top": M_TOP,
+            "right": M_RIGHT,
+            "bottom": M_BOTTOM,
+        },
+        "fonts": {
+            "family": "monogram-extended",
+            "title": 32,
+            "sub": 32,
+            "body": 16,
+            "meta": 16,
+            "temp": 64,
+        },
         "layout": {
             "cols": 2,
             "rows": 2,
@@ -467,6 +482,12 @@ def normalize_config(cfg):
     if "inky" in default_cfg:
         current = cfg.get("inky") or {}
         cfg["inky"] = {**default_cfg.get("inky", {}), **current}
+    if "fonts" in default_cfg:
+        current = cfg.get("fonts") or {}
+        cfg["fonts"] = {**default_cfg.get("fonts", {}), **current}
+    if "safe_area" in default_cfg:
+        current = cfg.get("safe_area") or {}
+        cfg["safe_area"] = {**default_cfg.get("safe_area", {}), **current}
     return cfg
 
 
@@ -566,13 +587,43 @@ def render_dashboard(config=None, output_path=None, upload=False):
         print(f"warning: expected {EXPECTED_W}x{EXPECTED_H}, got {w}x{h}")
 
     # Fonts (fall back to default bitmap font if truetype is unavailable)
+    font_cfg = cfg.get("fonts") or {}
+    font_family_raw = str(font_cfg.get("family") or "monogram-extended").strip()
+    font_family = font_family_raw.lower()
+    font_sizes = {
+        "title": int(font_cfg.get("title", 32)),
+        "sub": int(font_cfg.get("sub", 32)),
+        "body": int(font_cfg.get("body", 16)),
+        "meta": int(font_cfg.get("meta", 16)),
+        "temp": int(font_cfg.get("temp", 64)),
+    }
+    font_paths = {
+        "monogram": str(BASE_DIR / "assets" / "fonts" / "monogram" / "monogram.ttf"),
+        "monogram-extended": str(BASE_DIR / "assets" / "fonts" / "monogram" / "monogram-extended.ttf"),
+        "monogram-extended-italic": str(BASE_DIR / "assets" / "fonts" / "monogram" / "monogram-extended-italic.ttf"),
+    }
     try:
-        font_path = "assets/fonts/monogram/monogram-extended.ttf"
-        font_title = ImageFont.truetype(font_path, 32)
-        font_sub = ImageFont.truetype(font_path, 32)
-        font_body = ImageFont.truetype(font_path, 16)
-        font_temp = ImageFont.truetype(font_path, 64)
-        font_meta = ImageFont.truetype(font_path, 16)
+        if font_family == "default":
+            raise OSError("Use default font")
+        if font_family in font_paths:
+            font_path = font_paths[font_family]
+        elif font_family_raw.startswith("custom/") or font_family.startswith("custom/"):
+            font_path = str(BASE_DIR / "assets" / "fonts" / font_family_raw)
+            if not Path(font_path).exists():
+                custom_dir = BASE_DIR / "assets" / "fonts" / "custom"
+                target_name = Path(font_family_raw).name.lower()
+                if custom_dir.exists():
+                    for candidate in custom_dir.iterdir():
+                        if candidate.name.lower() == target_name:
+                            font_path = str(candidate)
+                            break
+        else:
+            font_path = font_paths["monogram-extended"]
+        font_title = ImageFont.truetype(font_path, font_sizes["title"])
+        font_sub = ImageFont.truetype(font_path, font_sizes["sub"])
+        font_body = ImageFont.truetype(font_path, font_sizes["body"])
+        font_temp = ImageFont.truetype(font_path, font_sizes["temp"])
+        font_meta = ImageFont.truetype(font_path, font_sizes["meta"])
     except OSError:
         font_title = ImageFont.load_default()
         font_sub = ImageFont.load_default()
@@ -599,16 +650,75 @@ def render_dashboard(config=None, output_path=None, upload=False):
         "yellow": PALETTE_COLORS[5],
         "orange": PALETTE_COLORS[6],
     }
+    palette_inky = [
+        inky.BLACK,
+        inky.WHITE,
+        inky.GREEN,
+        inky.BLUE,
+        inky.RED,
+        inky.YELLOW,
+        orange,
+    ]
+
+    def resolve_color(value, default_name):
+        if isinstance(value, str):
+            value = value.strip()
+        if isinstance(value, str) and value.startswith("#"):
+            hex_value = value
+            if len(hex_value) == 4:
+                hex_value = f"#{hex_value[1]*2}{hex_value[2]*2}{hex_value[3]*2}"
+            if len(hex_value) >= 7:
+                hex_value = hex_value[:7]
+                try:
+                    r = int(hex_value[1:3], 16)
+                    g = int(hex_value[3:5], 16)
+                    b = int(hex_value[5:7], 16)
+                except ValueError:
+                    value = default_name
+                else:
+                    distances = []
+                    for idx, (pr, pg, pb) in enumerate(PALETTE_COLORS):
+                        dist = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2
+                        distances.append((dist, idx))
+                    distances.sort(key=lambda item: item[0])
+                    best_dist, best_idx = distances[0]
+                    second_dist, second_idx = distances[1] if len(distances) > 1 else (best_dist, best_idx)
+                    total = best_dist + second_dist
+                    ratio = 0.0 if total == 0 else best_dist / total
+                    return (
+                        palette_inky[best_idx],
+                        PALETTE_COLORS[best_idx],
+                        palette_inky[second_idx],
+                        PALETTE_COLORS[second_idx],
+                        ratio,
+                        True,
+                    )
+        key = str(value or default_name).lower()
+        return (
+            color_map.get(key, color_map[default_name]),
+            color_map_rgb.get(key, color_map_rgb[default_name]),
+            color_map.get(key, color_map[default_name]),
+            color_map_rgb.get(key, color_map_rgb[default_name]),
+            0.0,
+            False,
+        )
 
     # Background and safe area frame
     layout_bg = (layout.get("background") or {})
-    bg_color = color_map.get(str(layout_bg.get("color", "white")).lower(), inky.WHITE)
-    bg_color_rgb = color_map_rgb.get(str(layout_bg.get("color", "white")).lower(), PALETTE_COLORS[1])
-    bg_dither = bool(layout_bg.get("dither"))
-    bg_dither_color = color_map.get(str(layout_bg.get("dither_color", "white")).lower(), inky.WHITE)
-    bg_dither_color_rgb = color_map_rgb.get(str(layout_bg.get("dither_color", "white")).lower(), PALETTE_COLORS[1])
+    bg_color, bg_color_rgb, bg_dither_pick, bg_dither_pick_rgb, bg_ratio, bg_is_hex = resolve_color(
+        layout_bg.get("color", "white"),
+        "white",
+    )
+    bg_dither = bool(layout_bg.get("dither")) or bg_is_hex
+    bg_dither_color, bg_dither_color_rgb, _, _, _, _ = resolve_color(
+        layout_bg.get("dither_color", "white"),
+        "white",
+    )
+    if bg_is_hex and not layout_bg.get("dither"):
+        bg_dither_color = bg_dither_pick
+        bg_dither_color_rgb = bg_dither_pick_rgb
     bg_dither_step = int(layout_bg.get("dither_step", 2)) if layout_bg.get("dither_step") is not None else 2
-    bg_dither_ratio = layout_bg.get("dither_ratio", 0.5)
+    bg_dither_ratio = bg_ratio if bg_is_hex and not layout_bg.get("dither") else layout_bg.get("dither_ratio", 0.5)
     if bg_dither:
         apply_dither_rect(
             img,
@@ -621,8 +731,13 @@ def render_dashboard(config=None, output_path=None, upload=False):
     else:
         draw.rectangle((0, 0, w - 1, h - 1), bg_color)
 
-    x0, y0 = M_LEFT, M_TOP
-    x1, y1 = w - 1 - M_RIGHT, h - 1 - M_BOTTOM
+    safe_area = cfg.get("safe_area") or {}
+    m_left = int(safe_area.get("left", M_LEFT))
+    m_top = int(safe_area.get("top", M_TOP))
+    m_right = int(safe_area.get("right", M_RIGHT))
+    m_bottom = int(safe_area.get("bottom", M_BOTTOM))
+    x0, y0 = m_left, m_top
+    x1, y1 = w - 1 - m_right, h - 1 - m_bottom
     layout_area = (x0, y0, x1, y1)
 
     tiles = build_tile_specs(cfg)
@@ -634,6 +749,7 @@ def render_dashboard(config=None, output_path=None, upload=False):
         "img": img,
         "draw": draw,
         "inky": inky,
+        "preview_stub": bool(cfg.get("preview_stub")),
         "fonts": {
             "title": font_title,
             "sub": font_sub,
@@ -661,13 +777,20 @@ def render_dashboard(config=None, output_path=None, upload=False):
     border_style = str(border_cfg.get("style", "solid")).lower()
     if border_style not in ("solid", "dotted"):
         border_style = "solid"
-    border_color = color_map.get(str(border_cfg.get("color", "black")).lower(), inky.BLACK)
-    border_color_rgb = color_map_rgb.get(str(border_cfg.get("color", "black")).lower(), PALETTE_COLORS[0])
-    border_dither = bool(border_cfg.get("dither"))
-    border_dither_color = color_map.get(str(border_cfg.get("dither_color", "white")).lower(), inky.WHITE)
-    border_dither_color_rgb = color_map_rgb.get(str(border_cfg.get("dither_color", "white")).lower(), PALETTE_COLORS[1])
+    border_color, border_color_rgb, border_dither_pick, border_dither_pick_rgb, border_ratio, border_is_hex = resolve_color(
+        border_cfg.get("color", "black"),
+        "black",
+    )
+    border_dither = bool(border_cfg.get("dither")) or border_is_hex
+    border_dither_color, border_dither_color_rgb, _, _, _, _ = resolve_color(
+        border_cfg.get("dither_color", "white"),
+        "white",
+    )
+    if border_is_hex and not border_cfg.get("dither"):
+        border_dither_color = border_dither_pick
+        border_dither_color_rgb = border_dither_pick_rgb
     border_dither_step = int(border_cfg.get("dither_step", 2)) if border_cfg.get("dither_step") is not None else 2
-    border_dither_ratio = border_cfg.get("dither_ratio", 0.5)
+    border_dither_ratio = border_ratio if border_is_hex and not border_cfg.get("dither") else border_cfg.get("dither_ratio", 0.5)
 
     for spec, bbox in layout_tiles(layout_area, cols=cols, rows=rows, gutter=gutter, tile_layout=tiles):
         left, top, right, bottom = bbox

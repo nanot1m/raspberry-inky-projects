@@ -10,6 +10,7 @@ DEFAULT_TRANSIT_CONFIG = {
     "title_color": "red",
     "line_bg": "red",
     "line_text_color": "white",
+    "line_badge_y_offset": 0,
     "max_rows_per_group": 4,
     "pad": 12,
 }
@@ -19,6 +20,7 @@ TRANSIT_SCHEMA = {
     "title_color": {"type": "enum", "label": "Title Color", "options": ["red", "blue", "black"]},
     "line_bg": {"type": "enum", "label": "Line Badge", "options": ["red", "blue", "black"]},
     "line_text_color": {"type": "enum", "label": "Line Text", "options": ["white", "black"]},
+    "line_badge_y_offset": {"type": "number", "label": "Line Badge Y Offset", "min": -10, "max": 10},
     "max_rows_per_group": {"type": "number", "label": "Max Rows Per Direction", "min": 1, "max": 12},
     "pad": {"type": "number", "label": "Padding", "min": 0, "max": 30},
 }
@@ -110,9 +112,9 @@ def get_tram_departures(stop_query, line_filter=None):
 
 def draw_tram_table(draw, x, y, width, title, rows, fonts, inky, title_color, line_bg, line_text_color):
     font_title, font_sub, font_body, font_meta = fonts
-    title_text = truncate_text(draw, title, width, font=font_sub)
-    draw.text((x, y), title_text, title_color, font=font_sub)
-    y += line_height(draw, font_sub) + 4
+    title_text = truncate_text(draw, title, width, font=font_body)
+    draw.text((x, y), title_text, title_color, font=font_body)
+    y += line_height(draw, font_body) + 4
 
     table_left = x
     table_right = x + width
@@ -178,7 +180,7 @@ def normalize_direction(direction):
     return direction
 
 
-def draw_tram_rows(draw, y, columns, rows, fonts, inky, line_bg, line_text_color, max_rows):
+def draw_tram_rows(draw, y, columns, rows, fonts, inky, line_bg, line_text_color, max_rows, line_badge_y_offset):
     table_left, table_right, col_time, col_line, col_dir, gap = columns
     _, _, font_body, _ = fonts
     if not rows:
@@ -195,7 +197,7 @@ def draw_tram_rows(draw, y, columns, rows, fonts, inky, line_bg, line_text_color
         line_w, line_h = text_size(draw, line_text, font=font_body)
         box_w = col_line - 1
         box_h = line_h + 3
-        box_y = y + max(0, (row_h - box_h) // 2) + 1
+        box_y = y + max(0, (row_h - box_h) // 2) + 1 + line_badge_y_offset
         if line_text:
             draw.rectangle(
                 (line_x, box_y, line_x + box_w, box_y + box_h),
@@ -242,10 +244,26 @@ def draw_transit_tile(ctx, bbox, config):
     title_color = getattr(inky, str(config.get("title_color", "RED")).upper(), inky.RED)
     line_bg = getattr(inky, str(config.get("line_bg", "RED")).upper(), inky.RED)
     line_text_color = getattr(inky, str(config.get("line_text_color", "WHITE")).upper(), inky.WHITE)
+    line_badge_y_offset = config.get("line_badge_y_offset", DEFAULT_TRANSIT_CONFIG["line_badge_y_offset"])
+    try:
+        line_badge_y_offset = int(line_badge_y_offset)
+    except (TypeError, ValueError):
+        line_badge_y_offset = DEFAULT_TRANSIT_CONFIG["line_badge_y_offset"]
     max_rows = DEFAULT_TRANSIT_CONFIG["max_rows_per_group"]
+    stub_rows = [
+        ("12:05", "M5", "S+U Hauptbahnhof", "S+U Hauptbahnhof"),
+        ("12:12", "M5", "S+U Hauptbahnhof", "S+U Hauptbahnhof"),
+        ("12:19", "M5", "S+U Hauptbahnhof", "S+U Hauptbahnhof"),
+        ("12:07", "M5", "Zingster Str.", "Zingster Str."),
+        ("12:14", "M5", "Zingster Str.", "Zingster Str."),
+        ("12:21", "M5", "Zingster Str.", "Zingster Str."),
+    ]
 
     for stop_query in stops:
-        stop_name, rows = get_tram_departures(stop_query)
+        if ctx.get("preview_stub"):
+            stop_name, rows = stop_query, stub_rows
+        else:
+            stop_name, rows = get_tram_departures(stop_query)
         max_rows_per_group = config.get("max_rows_per_group") or max_rows
         try:
             max_rows_per_group = int(max_rows_per_group)
@@ -351,5 +369,6 @@ def draw_transit_tile(ctx, bbox, config):
                 line_bg,
                 line_text_color,
                 max_rows_per_group,
+                line_badge_y_offset,
             )
         y += 10

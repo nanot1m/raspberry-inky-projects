@@ -8,6 +8,7 @@ const tilesEl = document.getElementById("tiles");
 const safeViewportEl = document.getElementById("safeViewport");
 const presetSelect = document.getElementById("presetSelect");
 const deletePresetBtn = document.getElementById("deletePreset");
+const previewStubInput = document.getElementById("previewStub");
 const scheduleInput = document.getElementById("updateInterval");
 const borderWidthInput = document.getElementById("borderWidth");
 const borderRadiusInput = document.getElementById("borderRadius");
@@ -22,15 +23,41 @@ const backgroundDitherInput = document.getElementById("backgroundDither");
 const backgroundDitherColorSelect = document.getElementById("backgroundDitherColor");
 const backgroundDitherStepInput = document.getElementById("backgroundDitherStep");
 const backgroundDitherRatioInput = document.getElementById("backgroundDitherRatio");
+const fontFamilySelect = document.getElementById("fontFamily");
+const fontTitleInput = document.getElementById("fontTitle");
+const fontSubInput = document.getElementById("fontSub");
+const fontBodyInput = document.getElementById("fontBody");
+const fontMetaInput = document.getElementById("fontMeta");
+const fontTempInput = document.getElementById("fontTemp");
+const uploadFontBtn = document.getElementById("uploadFont");
+const fontFileInput = document.getElementById("fontFile");
+const safeLeftInput = document.getElementById("safeLeft");
+const safeTopInput = document.getElementById("safeTop");
+const safeRightInput = document.getElementById("safeRight");
+const safeBottomInput = document.getElementById("safeBottom");
+const tabButtons = document.querySelectorAll(".tab-btn");
+const tabPanels = document.querySelectorAll(".tab-panel");
+const borderDitherOptionsEl = document.getElementById("borderDitherOptions");
+const backgroundDitherOptionsEl = document.getElementById("backgroundDitherOptions");
+
+const PALETTE_HEX = {
+  black: "#000000",
+  white: "#ffffff",
+  green: "#008000",
+  blue: "#0000ff",
+  red: "#ff0000",
+  yellow: "#ffff00",
+  orange: "#ffa500",
+};
 const layoutPanelEl = document.getElementById("layoutPanel");
 const configPanelEl = document.getElementById("configPanel");
 const backToLayoutBtn = document.getElementById("backToLayout");
 const canvas = document.getElementById("previewCanvas");
 const ctx = canvas.getContext("2d", { alpha: false });
 
-const SAFE = { left: 60, top: 35, right: 55, bottom: 10 };
-const DEFAULT_W = 800;
-const DEFAULT_H = 480;
+let SAFE = { left: 4, top: 4, right: 4, bottom: 4 };
+let DEFAULT_W = 800;
+let DEFAULT_H = 480;
 const ANIM_DURATION = 160;
 
 let activeTileIndex = null;
@@ -51,15 +78,19 @@ let presetPreview = null;
 let presetPreviewTimer = null;
 let tileAnimations = new Map();
 let applyStatusTimer = null;
+let ditherPreviewTimer = null;
+let availableFonts = [];
 
-const initialSafeWidth = DEFAULT_W - SAFE.left - SAFE.right;
-const initialSafeHeight = DEFAULT_H - SAFE.top - SAFE.bottom;
+const initialSafeWidth = DEFAULT_W;
+const initialSafeHeight = DEFAULT_H;
 viewportSize = {
   width: initialSafeWidth,
   height: initialSafeHeight,
   scale: 1,
-  baseWidth: initialSafeWidth,
-  baseHeight: initialSafeHeight,
+  baseWidth: DEFAULT_W - SAFE.left - SAFE.right,
+  baseHeight: DEFAULT_H - SAFE.top - SAFE.bottom,
+  offsetX: SAFE.left,
+  offsetY: SAFE.top,
 };
 canvas.width = initialSafeWidth;
 canvas.height = initialSafeHeight;
@@ -76,6 +107,130 @@ const setStatus = (msg, ok = true) => {
 const setUploading = (isUploading) => {
   applyBtn.disabled = isUploading;
   appState.uploading = isUploading;
+};
+
+const updateDitherVisibility = () => {
+  if (borderDitherOptionsEl && borderDitherInput) {
+    borderDitherOptionsEl.classList.toggle("hidden", !borderDitherInput.checked);
+  }
+  if (backgroundDitherOptionsEl && backgroundDitherInput) {
+    backgroundDitherOptionsEl.classList.toggle("hidden", !backgroundDitherInput.checked);
+  }
+};
+
+const scheduleDitherPreview = () => {
+  if (ditherPreviewTimer) clearTimeout(ditherPreviewTimer);
+  ditherPreviewTimer = setTimeout(() => {
+    ditherPreviewTimer = null;
+    requestPreview(collectConfig(), "Preview updated", true).catch(() => {});
+  }, 250);
+};
+
+const applySafeArea = (data) => {
+  if (!data || typeof data !== "object") return;
+  const next = { ...SAFE };
+  if (Number.isFinite(data.left)) next.left = Number(data.left);
+  if (Number.isFinite(data.top)) next.top = Number(data.top);
+  if (Number.isFinite(data.right)) next.right = Number(data.right);
+  if (Number.isFinite(data.bottom)) next.bottom = Number(data.bottom);
+  SAFE = next;
+  if (Number.isFinite(data.width)) DEFAULT_W = Number(data.width);
+  if (Number.isFinite(data.height)) DEFAULT_H = Number(data.height);
+};
+
+const toHex = (value, fallback = "#000000") => {
+  if (!value) return fallback;
+  if (typeof value === "string" && value.startsWith("#") && value.length >= 7) {
+    return value.slice(0, 7).toLowerCase();
+  }
+  const named = PALETTE_HEX[String(value).toLowerCase()];
+  return named || fallback;
+};
+
+const updateSafeAreaFromInputs = (shouldPreview = true) => {
+  const left = Number(safeLeftInput.value || 0);
+  const top = Number(safeTopInput.value || 0);
+  const right = Number(safeRightInput.value || 0);
+  const bottom = Number(safeBottomInput.value || 0);
+  SAFE = { left, top, right, bottom };
+  updateSafeViewport();
+  if (shouldPreview) {
+    requestPreview(collectConfig(), "Preview updated", true).catch(() => {});
+  }
+};
+
+const setActiveTab = (tabName) => {
+  tabButtons.forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.tab === tabName);
+  });
+  tabPanels.forEach((panel) => {
+    panel.classList.toggle("active", panel.dataset.tab === tabName);
+  });
+};
+
+const refreshFontOptions = (selected) => {
+  if (!fontFamilySelect) return;
+  fontFamilySelect.innerHTML = "";
+  availableFonts.forEach((font) => {
+    const opt = document.createElement("option");
+    opt.value = font.value;
+    const label = String(font.label || font.value || "");
+    opt.textContent = label.length > 24 ? `${label.slice(0, 21)}...` : label;
+    opt.title = label;
+    if (selected && selected === font.value) opt.selected = true;
+    fontFamilySelect.appendChild(opt);
+  });
+};
+
+const loadFonts = async (selected) => {
+  const data = await fetchJson("/api/fonts");
+  availableFonts = data.fonts || [];
+  refreshFontOptions(selected);
+};
+
+const loadSafeArea = async () => {
+  const data = await fetchJson("/api/safe-area");
+  applySafeArea(data);
+};
+
+const uploadFont = async (file) => {
+  const reader = new FileReader();
+  const result = await new Promise((resolve, reject) => {
+    reader.onerror = () => reject(new Error("Failed to read font file"));
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+  const base64 = String(result).split(",")[1] || "";
+  const res = await fetchJson("/api/fonts", {
+    method: "POST",
+    body: JSON.stringify({
+      name: file.name,
+      data: base64,
+    }),
+  });
+  await loadFonts(res.value);
+  fontFamilySelect.value = res.value;
+  updateResetState();
+  setStatus("Font uploaded");
+};
+
+const uploadPhoto = async (file) => {
+  const reader = new FileReader();
+  const result = await new Promise((resolve, reject) => {
+    reader.onerror = () => reject(new Error("Failed to read photo file"));
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+  const base64 = String(result).split(",")[1] || "";
+  const res = await fetchJson("/api/photos", {
+    method: "POST",
+    body: JSON.stringify({
+      name: file.name,
+      data: base64,
+    }),
+  });
+  setStatus("Photo uploaded");
+  return res.value;
 };
 
 const setProgress = (percent, message = null) => {
@@ -117,17 +272,19 @@ const requestPreview = async (config, successMessage = "Preview updated", showSt
   if (showStatus) {
     setStatus("Generating preview...");
   }
+  const payload = previewStubInput && previewStubInput.checked
+    ? { ...config, preview_stub: true }
+    : config;
   appState.previewRequest = (async () => {
     try {
       const res = await fetchJson("/api/preview", {
         method: "POST",
-        body: JSON.stringify(config),
+        body: JSON.stringify(payload),
       });
       const src = res.image_data || `${res.image}?ts=${Date.now()}`;
       previewImage = await loadPreviewImage(src);
       previewReady = true;
       updateSafeViewport();
-      assignPreviewSlices(currentTiles);
       if (showStatus && successMessage) {
         setStatus(successMessage);
       }
@@ -261,8 +418,8 @@ const assignPreviewSlices = (tiles, layoutOverride = null) => {
     const rect = rects[idx];
     if (!rect) return;
     tile.preview = {
-      sx: SAFE.left + rect.left,
-      sy: SAFE.top + rect.top,
+      sx: rect.left,
+      sy: rect.top,
       sw: rect.w,
       sh: rect.h,
     };
@@ -272,11 +429,13 @@ const assignPreviewSlices = (tiles, layoutOverride = null) => {
 const computeTileRects = (tiles, cols, rows, gutterBase) => {
   const baseWidth = viewportSize.baseWidth;
   const baseHeight = viewportSize.baseHeight;
+  const offsetX = viewportSize.offsetX || 0;
+  const offsetY = viewportSize.offsetY || 0;
   const colWBase = Math.floor((baseWidth - gutterBase * (cols - 1)) / cols);
   const rowHBase = Math.floor((baseHeight - gutterBase * (rows - 1)) / rows);
   return tiles.map((tile) => {
-    const left = tile.col * (colWBase + gutterBase);
-    const top = tile.row * (rowHBase + gutterBase);
+    const left = offsetX + tile.col * (colWBase + gutterBase);
+    const top = offsetY + tile.row * (rowHBase + gutterBase);
     const w = colWBase * tile.colspan + gutterBase * (tile.colspan - 1);
     const h = rowHBase * tile.rowspan + gutterBase * (tile.rowspan - 1);
     return { left, top, w, h };
@@ -385,34 +544,38 @@ const drawCanvas = (now) => {
   const rects = computeTileRects(currentTiles, currentLayout.cols, currentLayout.rows, gutter);
 
   if (previewReady && previewImage) {
-    currentTiles.forEach((tile, idx) => {
-      const baseRect = rects[idx];
-      if (!baseRect) return;
-      let rect = getAnimatedRect(idx, baseRect, now);
-      if (isDragging && idx === dragSourceIndex) {
-        rect = { ...rect, left: rect.left + dragOffset.x, top: rect.top + dragOffset.y };
-      }
-      const preview = tile.preview;
-      if (preview && previewImage) {
-        const srcW = Math.min(previewImage.width - preview.sx, preview.sw + 1);
-        const srcH = Math.min(previewImage.height - preview.sy, preview.sh + 1);
-        const dstW = rect.w + 1;
-        const dstH = rect.h + 1;
-        ctx.drawImage(
-          previewImage,
-          preview.sx,
-          preview.sy,
-          srcW,
-          srcH,
-          rect.left,
-          rect.top,
-          dstW,
-          dstH
-        );
-      } else {
-        drawPlaceholderRect(rect);
-      }
-    });
+    if (isDragging) {
+      currentTiles.forEach((tile, idx) => {
+        const baseRect = rects[idx];
+        if (!baseRect) return;
+        let rect = getAnimatedRect(idx, baseRect, now);
+        if (idx === dragSourceIndex) {
+          rect = { ...rect, left: rect.left + dragOffset.x, top: rect.top + dragOffset.y };
+        }
+        const preview = tile.preview;
+        if (preview && previewImage) {
+          const srcW = Math.min(previewImage.width - preview.sx, preview.sw + 1);
+          const srcH = Math.min(previewImage.height - preview.sy, preview.sh + 1);
+          const dstW = rect.w + 1;
+          const dstH = rect.h + 1;
+          ctx.drawImage(
+            previewImage,
+            preview.sx,
+            preview.sy,
+            srcW,
+            srcH,
+            rect.left,
+            rect.top,
+            dstW,
+            dstH
+          );
+        } else {
+          drawPlaceholderRect(rect);
+        }
+      });
+    } else {
+      ctx.drawImage(previewImage, 0, 0, previewImage.width, previewImage.height, 0, 0, canvas.width, canvas.height);
+    }
   } else {
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -732,6 +895,41 @@ const renderTileConfig = (tiles, pluginMeta) => {
       return;
     }
 
+    if (def.type === "file") {
+      cfgWrap.appendChild(label);
+      const row = document.createElement("div");
+      row.className = "font-row";
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "Upload";
+      const input = document.createElement("input");
+      input.type = "file";
+      input.className = "file-hidden";
+      input.accept = def.accept || ".png,.jpg,.jpeg,.bmp";
+      button.addEventListener("click", () => input.click());
+      input.addEventListener("change", async () => {
+        const file = input.files && input.files[0];
+        if (!file) return;
+        try {
+          const value = await uploadPhoto(file);
+          const target = def.target || "path";
+          const targetInput = cfgWrap.querySelector(`[data-key="${target}"]`);
+          if (targetInput) {
+            targetInput.value = value;
+          }
+          updateResetState();
+        } catch (e) {
+          setStatus(e.message, false);
+        } finally {
+          input.value = "";
+        }
+      });
+      row.appendChild(button);
+      row.appendChild(input);
+      cfgWrap.appendChild(row);
+      return;
+    }
+
     const input = document.createElement("input");
     input.dataset.key = key;
     if (def.type === "number") {
@@ -824,16 +1022,37 @@ const applyConfigToUI = async (config, options = {}) => {
   borderWidthInput.value = config.layout.border?.width ?? 1;
   borderRadiusInput.value = config.layout.border?.radius ?? 0;
   borderStyleSelect.value = config.layout.border?.style ?? "solid";
-  borderColorSelect.value = config.layout.border?.color ?? "black";
-  borderDitherInput.checked = Boolean(config.layout.border?.dither);
-  borderDitherColorSelect.value = config.layout.border?.dither_color ?? "white";
-  borderDitherStepInput.value = config.layout.border?.dither_step ?? 2;
-  borderDitherRatioInput.value = config.layout.border?.dither_ratio ?? 0.5;
-  backgroundColorSelect.value = config.layout.background?.color ?? "white";
-  backgroundDitherInput.checked = Boolean(config.layout.background?.dither);
-  backgroundDitherColorSelect.value = config.layout.background?.dither_color ?? "blue";
-  backgroundDitherStepInput.value = config.layout.background?.dither_step ?? 2;
-  backgroundDitherRatioInput.value = config.layout.background?.dither_ratio ?? 0.5;
+  borderColorSelect.value = toHex(config.layout.border?.color, "#000000");
+  if (borderDitherInput) borderDitherInput.checked = Boolean(config.layout.border?.dither);
+  if (borderDitherColorSelect) borderDitherColorSelect.value = toHex(config.layout.border?.dither_color, "#ffffff");
+  if (borderDitherStepInput) borderDitherStepInput.value = config.layout.border?.dither_step ?? 2;
+  if (borderDitherRatioInput) borderDitherRatioInput.value = config.layout.border?.dither_ratio ?? 0.5;
+  backgroundColorSelect.value = toHex(config.layout.background?.color, "#ffffff");
+  if (backgroundDitherInput) backgroundDitherInput.checked = Boolean(config.layout.background?.dither);
+  if (backgroundDitherColorSelect) backgroundDitherColorSelect.value = toHex(config.layout.background?.dither_color, "#0000ff");
+  if (backgroundDitherStepInput) backgroundDitherStepInput.value = config.layout.background?.dither_step ?? 2;
+  if (backgroundDitherRatioInput) backgroundDitherRatioInput.value = config.layout.background?.dither_ratio ?? 0.5;
+  const fonts = config.fonts || {};
+  const desiredFont = fonts.family ?? "monogram-extended";
+  if (availableFonts.length === 0) {
+    await loadFonts(desiredFont);
+  } else if (![...fontFamilySelect.options].some((opt) => opt.value === desiredFont)) {
+    await loadFonts(desiredFont);
+  } else {
+    fontFamilySelect.value = desiredFont;
+  }
+  fontTitleInput.value = fonts.title ?? 32;
+  fontSubInput.value = fonts.sub ?? 32;
+  fontBodyInput.value = fonts.body ?? 16;
+  fontMetaInput.value = fonts.meta ?? 16;
+  fontTempInput.value = fonts.temp ?? 64;
+  const safe = config.safe_area || {};
+  safeLeftInput.value = safe.left ?? SAFE.left;
+  safeTopInput.value = safe.top ?? SAFE.top;
+  safeRightInput.value = safe.right ?? SAFE.right;
+  safeBottomInput.value = safe.bottom ?? SAFE.bottom;
+  updateSafeAreaFromInputs(false);
+  updateDitherVisibility();
   if (config.update_interval_minutes != null) {
     scheduleInput.value = String(config.update_interval_minutes);
   } else {
@@ -925,6 +1144,20 @@ const collectConfig = () => {
     active_preset: currentConfig?.active_preset ?? null,
     inky: currentConfig?.inky ?? null,
     update_interval_minutes: scheduleInput.value === "" ? null : Number(scheduleInput.value),
+    fonts: {
+      family: fontFamilySelect.value,
+      title: Number(fontTitleInput.value),
+      sub: Number(fontSubInput.value),
+      body: Number(fontBodyInput.value),
+      meta: Number(fontMetaInput.value),
+      temp: Number(fontTempInput.value),
+    },
+    safe_area: {
+      left: Number(safeLeftInput.value || 0),
+      top: Number(safeTopInput.value || 0),
+      right: Number(safeRightInput.value || 0),
+      bottom: Number(safeBottomInput.value || 0),
+    },
     layout: {
       cols: currentLayout.cols,
       rows: currentLayout.rows,
@@ -934,17 +1167,17 @@ const collectConfig = () => {
         radius: borderRadiusInput.value === "" ? 0 : Number(borderRadiusInput.value),
         style: borderStyleSelect.value,
         color: borderColorSelect.value,
-        dither: borderDitherInput.checked,
-        dither_color: borderDitherColorSelect.value,
-        dither_step: borderDitherStepInput.value === "" ? 2 : Number(borderDitherStepInput.value),
-        dither_ratio: borderDitherRatioInput.value === "" ? 0.5 : Number(borderDitherRatioInput.value),
+        dither: borderDitherInput ? borderDitherInput.checked : false,
+        dither_color: borderDitherColorSelect ? borderDitherColorSelect.value : "white",
+        dither_step: borderDitherStepInput && borderDitherStepInput.value !== "" ? Number(borderDitherStepInput.value) : 2,
+        dither_ratio: borderDitherRatioInput && borderDitherRatioInput.value !== "" ? Number(borderDitherRatioInput.value) : 0.5,
       },
       background: {
         color: backgroundColorSelect.value,
-        dither: backgroundDitherInput.checked,
-        dither_color: backgroundDitherColorSelect.value,
-        dither_step: backgroundDitherStepInput.value === "" ? 2 : Number(backgroundDitherStepInput.value),
-        dither_ratio: backgroundDitherRatioInput.value === "" ? 0.5 : Number(backgroundDitherRatioInput.value),
+        dither: backgroundDitherInput ? backgroundDitherInput.checked : false,
+        dither_color: backgroundDitherColorSelect ? backgroundDitherColorSelect.value : "white",
+        dither_step: backgroundDitherStepInput && backgroundDitherStepInput.value !== "" ? Number(backgroundDitherStepInput.value) : 2,
+        dither_ratio: backgroundDitherRatioInput && backgroundDitherRatioInput.value !== "" ? Number(backgroundDitherRatioInput.value) : 0.5,
       },
       tiles,
     },
@@ -1075,15 +1308,23 @@ const applyPreset = (presetName, pluginMeta) => {
 const updateSafeViewport = () => {
   const base = getPreviewBaseSize();
   const scale = 1;
-  const safeW = base.safeWidth * scale;
-  const safeH = base.safeHeight * scale;
-  viewportSize = { width: safeW, height: safeH, scale, baseWidth: base.safeWidth, baseHeight: base.safeHeight };
-  canvas.width = base.safeWidth;
-  canvas.height = base.safeHeight;
-  canvas.style.width = `${safeW}px`;
-  canvas.style.height = `${safeH}px`;
-  safeViewportEl.style.width = `${safeW}px`;
-  safeViewportEl.style.height = `${safeH}px`;
+  const fullW = base.width * scale;
+  const fullH = base.height * scale;
+  viewportSize = {
+    width: fullW,
+    height: fullH,
+    scale,
+    baseWidth: base.safeWidth,
+    baseHeight: base.safeHeight,
+    offsetX: SAFE.left,
+    offsetY: SAFE.top,
+  };
+  canvas.width = base.width;
+  canvas.height = base.height;
+  canvas.style.width = `${fullW}px`;
+  canvas.style.height = `${fullH}px`;
+  safeViewportEl.style.width = `${fullW}px`;
+  safeViewportEl.style.height = `${fullH}px`;
 };
 
 const showPresetPreview = (presetName) => {
@@ -1107,35 +1348,23 @@ const clearPresetPreview = () => {
 };
 
 const init = async () => {
+  try {
+    await loadSafeArea();
+  } catch (e) {
+    // ignore safe area errors, fall back to defaults
+  }
+  updateSafeViewport();
+  setActiveTab("layout");
+  await loadFonts();
   const pluginMeta = await fetchJson("/api/plugins");
+  currentPluginMeta = pluginMeta;
   const config = await fetchJson("/api/config");
   currentConfig = config;
   const data = await fetchPresets();
   const presets = data.presets || {};
   const match = data.active || findMatchingPreset(presets, config);
+  await applyConfigToUI(config, { selectedPreset: match, skipPresetRefresh: true });
   refreshPresetSelect(presets, match);
-  currentLayout = { cols: config.layout.cols, rows: config.layout.rows };
-  document.getElementById("gutter").value = config.layout.gutter;
-  borderWidthInput.value = config.layout.border?.width ?? 1;
-  borderRadiusInput.value = config.layout.border?.radius ?? 0;
-  borderStyleSelect.value = config.layout.border?.style ?? "solid";
-  borderColorSelect.value = config.layout.border?.color ?? "black";
-  borderDitherInput.checked = Boolean(config.layout.border?.dither);
-  borderDitherColorSelect.value = config.layout.border?.dither_color ?? "white";
-  borderDitherStepInput.value = config.layout.border?.dither_step ?? 2;
-  borderDitherRatioInput.value = config.layout.border?.dither_ratio ?? 0.5;
-  backgroundColorSelect.value = config.layout.background?.color ?? "white";
-  backgroundDitherInput.checked = Boolean(config.layout.background?.dither);
-  backgroundDitherColorSelect.value = config.layout.background?.dither_color ?? "blue";
-  backgroundDitherStepInput.value = config.layout.background?.dither_step ?? 2;
-  backgroundDitherRatioInput.value = config.layout.background?.dither_ratio ?? 0.5;
-  if (config.update_interval_minutes != null) {
-    scheduleInput.value = String(config.update_interval_minutes);
-  } else {
-    scheduleInput.value = parseScheduleMinutes(config.update_schedule);
-  }
-  renderTiles(config.layout.tiles, pluginMeta);
-  updateSafeViewport();
   if (rafId === null) {
     rafId = requestAnimationFrame(drawLoop);
   }
@@ -1167,21 +1396,98 @@ const init = async () => {
   borderRadiusInput.addEventListener("change", updateResetState);
   borderStyleSelect.addEventListener("change", updateResetState);
   borderColorSelect.addEventListener("change", updateResetState);
-  borderDitherInput.addEventListener("change", updateResetState);
-  borderDitherColorSelect.addEventListener("change", updateResetState);
-  borderDitherStepInput.addEventListener("input", updateResetState);
-  borderDitherStepInput.addEventListener("change", updateResetState);
-  borderDitherRatioInput.addEventListener("input", updateResetState);
-  borderDitherRatioInput.addEventListener("change", updateResetState);
+  if (borderDitherInput) {
+    borderDitherInput.addEventListener("change", updateResetState);
+    borderDitherInput.addEventListener("change", () => {
+      updateDitherVisibility();
+      scheduleDitherPreview();
+    });
+  }
+  if (borderDitherColorSelect) {
+    borderDitherColorSelect.addEventListener("change", updateResetState);
+    borderDitherColorSelect.addEventListener("change", scheduleDitherPreview);
+  }
+  if (borderDitherStepInput) {
+    borderDitherStepInput.addEventListener("input", updateResetState);
+    borderDitherStepInput.addEventListener("change", updateResetState);
+    borderDitherStepInput.addEventListener("input", scheduleDitherPreview);
+    borderDitherStepInput.addEventListener("change", scheduleDitherPreview);
+  }
+  if (borderDitherRatioInput) {
+    borderDitherRatioInput.addEventListener("input", updateResetState);
+    borderDitherRatioInput.addEventListener("change", updateResetState);
+    borderDitherRatioInput.addEventListener("input", scheduleDitherPreview);
+    borderDitherRatioInput.addEventListener("change", scheduleDitherPreview);
+  }
   backgroundColorSelect.addEventListener("change", updateResetState);
-  backgroundDitherInput.addEventListener("change", updateResetState);
-  backgroundDitherColorSelect.addEventListener("change", updateResetState);
-  backgroundDitherStepInput.addEventListener("input", updateResetState);
-  backgroundDitherStepInput.addEventListener("change", updateResetState);
-  backgroundDitherRatioInput.addEventListener("input", updateResetState);
-  backgroundDitherRatioInput.addEventListener("change", updateResetState);
+  if (backgroundDitherInput) {
+    backgroundDitherInput.addEventListener("change", updateResetState);
+    backgroundDitherInput.addEventListener("change", () => {
+      updateDitherVisibility();
+      scheduleDitherPreview();
+    });
+  }
+  if (backgroundDitherColorSelect) {
+    backgroundDitherColorSelect.addEventListener("change", updateResetState);
+    backgroundDitherColorSelect.addEventListener("change", scheduleDitherPreview);
+  }
+  if (backgroundDitherStepInput) {
+    backgroundDitherStepInput.addEventListener("input", updateResetState);
+    backgroundDitherStepInput.addEventListener("change", updateResetState);
+    backgroundDitherStepInput.addEventListener("input", scheduleDitherPreview);
+    backgroundDitherStepInput.addEventListener("change", scheduleDitherPreview);
+  }
+  if (backgroundDitherRatioInput) {
+    backgroundDitherRatioInput.addEventListener("input", updateResetState);
+    backgroundDitherRatioInput.addEventListener("change", updateResetState);
+    backgroundDitherRatioInput.addEventListener("input", scheduleDitherPreview);
+    backgroundDitherRatioInput.addEventListener("change", scheduleDitherPreview);
+  }
   scheduleInput.addEventListener("input", updateResetState);
   scheduleInput.addEventListener("change", updateResetState);
+  fontFamilySelect.addEventListener("change", updateResetState);
+  fontTitleInput.addEventListener("input", updateResetState);
+  fontTitleInput.addEventListener("change", updateResetState);
+  fontSubInput.addEventListener("input", updateResetState);
+  fontSubInput.addEventListener("change", updateResetState);
+  fontBodyInput.addEventListener("input", updateResetState);
+  fontBodyInput.addEventListener("change", updateResetState);
+  fontMetaInput.addEventListener("input", updateResetState);
+  fontMetaInput.addEventListener("change", updateResetState);
+  fontTempInput.addEventListener("input", updateResetState);
+  fontTempInput.addEventListener("change", updateResetState);
+  safeLeftInput.addEventListener("input", updateResetState);
+  safeLeftInput.addEventListener("change", updateResetState);
+  safeTopInput.addEventListener("input", updateResetState);
+  safeTopInput.addEventListener("change", updateResetState);
+  safeRightInput.addEventListener("input", updateResetState);
+  safeRightInput.addEventListener("change", updateResetState);
+  safeBottomInput.addEventListener("input", updateResetState);
+  safeBottomInput.addEventListener("change", updateResetState);
+  [safeLeftInput, safeTopInput, safeRightInput, safeBottomInput].forEach((input) => {
+    input.addEventListener("input", () => updateSafeAreaFromInputs());
+    input.addEventListener("change", () => updateSafeAreaFromInputs());
+  });
+  uploadFontBtn.addEventListener("click", () => fontFileInput.click());
+  fontFileInput.addEventListener("change", async () => {
+    const file = fontFileInput.files && fontFileInput.files[0];
+    if (!file) return;
+    try {
+      await uploadFont(file);
+    } catch (e) {
+      setStatus(e.message, false);
+    } finally {
+      fontFileInput.value = "";
+    }
+  });
+  if (previewStubInput) {
+    previewStubInput.addEventListener("change", () => {
+      requestPreview(collectConfig(), "Preview updated", true).catch(() => {});
+    });
+  }
+  tabButtons.forEach((btn) => {
+    btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
+  });
   canvas.addEventListener("pointerenter", () => {
     isPreviewHover = true;
   });
@@ -1194,6 +1500,7 @@ const init = async () => {
     const hit = findTileIndex(point);
     if (hit === null) return;
     commitActiveTileConfig();
+    assignPreviewSlices(currentTiles);
     isDragging = true;
     dragSourceIndex = hit;
     dragTargetIndex = hit;
@@ -1270,23 +1577,33 @@ const init = async () => {
 };
 
 
-const saveConfigAndPreset = async (presetName) => {
+const saveConfigAndPreset = async (presetName, activatePreset = false) => {
   const config = collectConfig();
   await fetchJson("/api/config", {
     method: "POST",
     body: JSON.stringify(config),
   });
+  let savedName = "";
   if (presetName) {
     const presetRes = await fetchJson("/api/presets", {
       method: "POST",
       body: JSON.stringify({ name: presetName, config }),
     });
-  const data = await fetchPresets();
-  const presets = data.presets || {};
-  refreshPresetSelect(presets, presetRes.name || presetName);
+    savedName = presetRes.name || presetName;
+    const data = await fetchPresets();
+    const presets = data.presets || {};
+    refreshPresetSelect(presets, savedName);
+    if (activatePreset) {
+      await fetchJson("/api/presets/activate", {
+        method: "POST",
+        body: JSON.stringify({ name: savedName }),
+      });
+      config.active_preset = savedName;
+    }
   }
   currentConfig = config;
   updateResetState();
+  return savedName;
 };
 
 saveConfigBtn.addEventListener("click", async () => {
@@ -1305,10 +1622,10 @@ saveAsBtn.addEventListener("click", async () => {
       setStatus("Preset name is required", false);
       return;
     }
-    await saveConfigAndPreset(presetName);
-    const presets = await fetchPresets();
-    const match = findMatchingPreset(presets, currentConfig || collectConfig());
-    refreshPresetSelect(presets, match || presetName);
+    const savedName = await saveConfigAndPreset(presetName, true);
+    if (savedName) {
+      presetSelect.value = savedName;
+    }
     setStatus("Preset saved");
   } catch (e) {
     setStatus(e.message, false);
