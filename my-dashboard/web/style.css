@@ -22,6 +22,8 @@ body {
   border: 1px solid var(--line);
   padding: 18px;
   max-width: 1300px;
+  width: 100%;
+  box-sizing: border-box;
   background: #fffdf8;
   box-shadow: 0 20px 40px var(--shadow);
 }
@@ -49,12 +51,13 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 200px;
-  max-width: 800px;
-  flex: 1 1 800px;
+  flex: 1 1 830px;
 }
 .panel-preview .preview-wrap {
   flex: 1;
   min-height: 320px;
+  display: flex;
+  justify-content: center;
 }
 .panel-preview .safe-viewport {
   height: 100%;
@@ -76,6 +79,7 @@ body {
   gap: 16px;
   align-items: flex-start;
   flex-wrap: wrap;
+  width: 100%;
 }
 .panel-actions {
   display: flex;
@@ -154,6 +158,8 @@ body {
 }
 .panel {
   flex: 1 1 320px;
+  min-width: 0;
+  box-sizing: border-box;
   border: 1px solid var(--line);
   padding: 14px;
   background: var(--panel);
@@ -466,4 +472,81 @@ textarea {
 }
 .array-actions {
   margin-top: 6px;
+}
+
+@media (max-width: 900px) {
+  .row {
+    flex-direction: column;
+  }
+  .panel.panel-preview {
+    max-width: 100%;
+    flex: 1 1 auto;
+  }
+  .panel {
+    width: 100%;
+  }
+  .preview-wrap {
+    max-height: 60vh;
+  }
+}
+
+@media (max-width: 600px) {
+  body {
+    margin: 12px;
+  }
+  .card {
+    padding: 14px;
+  }
+  .panel {
+    padding: 12px;
+  }
+  .panel-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .status-area {
+    align-items: flex-start;
+    width: 100%;
+  }
+  .panel-actions .status {
+    white-space: normal;
+  }
+  .panel {
+    flex: 1 1 100%;
+  }
+  .preview-wrap {
+    max-width: 100%;
+  }
+  .safe-viewport {
+    max-width: 100%;
+    max-height: none;
+  }
+  .preview-canvas {
+    width: 100%;
+    height: auto;
+  }
+  .buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .buttons .preset-select,
+  .buttons .delete,
+  .preview-toggle {
+    grid-column: 1 / -1;
+  }
+  .buttons button {
+    width: 100%;
+  }
+  .panel h3 {
+    font-size: 12px;
+    letter-spacing: 0.08em;
+  }
+  .tab-btn {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+  .padding-row {
+    grid-template-columns: repeat(4, auto 1fr);
+  }
 }
