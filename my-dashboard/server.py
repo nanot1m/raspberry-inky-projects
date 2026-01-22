@@ -208,14 +208,26 @@ def apply_update():
     status = check_update_status()
     if status.get("error"):
         return False, status["error"]
-    if status.get("dirty"):
-        return False, "Local changes present. Commit or stash before updating."
     if not status.get("behind"):
         return True, "Already up to date."
+    autostashed = False
+    if status.get("dirty"):
+        stash = _git_cmd(["stash", "push", "-u", "-m", "codex-autostash"])
+        if stash.returncode != 0:
+            _update_last_error = (stash.stderr or stash.stdout or "Failed to stash").strip()
+            return False, _update_last_error
+        autostashed = True
     pull = _git_cmd(["pull", "--ff-only", "origin", "master"])
     if pull.returncode != 0:
         _update_last_error = (pull.stderr or pull.stdout or "Failed to pull").strip()
+        if autostashed:
+            _git_cmd(["stash", "pop"])
         return False, _update_last_error
+    if autostashed:
+        pop = _git_cmd(["stash", "pop"])
+        if pop.returncode != 0:
+            _update_last_error = (pop.stderr or pop.stdout or "Failed to reapply stash").strip()
+            return False, _update_last_error
     return True, "Updated"
 
 
