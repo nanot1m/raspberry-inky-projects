@@ -110,11 +110,37 @@
                 <option value="dotted">dotted</option>
               </select>
               <label>Border color</label>
-              <input id="borderColor" type="color" value="#000000" />
+              <div class="color-input">
+                <div class="color-palette" data-target="borderColor">
+                  <button class="color-swatch" type="button" data-color="#000000" title="Black" aria-label="Black" style="background:#000000;"></button>
+                  <button class="color-swatch" type="button" data-color="#ffffff" title="White" aria-label="White" style="background:#ffffff;"></button>
+                  <button class="color-swatch" type="button" data-color="#ff0000" title="Red" aria-label="Red" style="background:#ff0000;"></button>
+                  <button class="color-swatch" type="button" data-color="#ffff00" title="Yellow" aria-label="Yellow" style="background:#ffff00;"></button>
+                  <button class="color-swatch" type="button" data-color="#008000" title="Green" aria-label="Green" style="background:#008000;"></button>
+                  <button class="color-swatch" type="button" data-color="#0000ff" title="Blue" aria-label="Blue" style="background:#0000ff;"></button>
+                  <button class="color-swatch" type="button" data-color="#ffa500" title="Orange" aria-label="Orange" style="background:#ffa500;"></button>
+                  <label class="color-swatch custom" data-color="custom" title="Custom" aria-label="Custom color">
+                    <input id="borderColor" type="color" value="#000000" class="color-picker-overlay" />
+                  </label>
+                </div>
+              </div>
             </div>
             <div class="tab-panel layout-grid" data-tab="background">
               <label>Background color</label>
-              <input id="backgroundColor" type="color" value="#ffffff" />
+              <div class="color-input">
+                <div class="color-palette" data-target="backgroundColor">
+                  <button class="color-swatch" type="button" data-color="#000000" title="Black" aria-label="Black" style="background:#000000;"></button>
+                  <button class="color-swatch" type="button" data-color="#ffffff" title="White" aria-label="White" style="background:#ffffff;"></button>
+                  <button class="color-swatch" type="button" data-color="#ff0000" title="Red" aria-label="Red" style="background:#ff0000;"></button>
+                  <button class="color-swatch" type="button" data-color="#ffff00" title="Yellow" aria-label="Yellow" style="background:#ffff00;"></button>
+                  <button class="color-swatch" type="button" data-color="#008000" title="Green" aria-label="Green" style="background:#008000;"></button>
+                  <button class="color-swatch" type="button" data-color="#0000ff" title="Blue" aria-label="Blue" style="background:#0000ff;"></button>
+                  <button class="color-swatch" type="button" data-color="#ffa500" title="Orange" aria-label="Orange" style="background:#ffa500;"></button>
+                  <label class="color-swatch custom" data-color="custom" title="Custom" aria-label="Custom color">
+                    <input id="backgroundColor" type="color" value="#ffffff" class="color-picker-overlay" />
+                  </label>
+                </div>
+              </div>
             </div>
             <div class="tab-panel layout-grid" data-tab="type">
               <label>Font family</label>

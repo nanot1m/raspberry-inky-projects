@@ -147,6 +147,116 @@ const toHex = (value, fallback = "#000000") => {
   return named || fallback;
 };
 
+let palettesInitialized = false;
+const refreshColorPalettes = () => {
+  document.querySelectorAll(".color-palette").forEach((palette) => {
+    const targetId = palette.dataset.target;
+    if (!targetId) return;
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    const value = toHex(target.value, "#000000");
+    const swatches = [...palette.querySelectorAll(".color-swatch[data-color]")];
+    const customBtn = swatches.find((btn) => btn.dataset.color === "custom");
+    const paletteColors = swatches
+      .map((btn) => btn.dataset.color?.toLowerCase())
+      .filter((color) => color && color !== "custom");
+    const isPaletteColor = paletteColors.includes(value);
+    swatches.forEach((btn) => {
+      const color = btn.dataset.color?.toLowerCase();
+      btn.classList.toggle("active", color === value);
+    });
+    if (customBtn) {
+      if (isPaletteColor) {
+        customBtn.classList.remove("active");
+        customBtn.style.background = "";
+      } else {
+        customBtn.classList.add("active");
+        customBtn.style.background = value;
+      }
+    }
+  });
+};
+
+const initColorPalettes = () => {
+  if (palettesInitialized) {
+    refreshColorPalettes();
+    return;
+  }
+  palettesInitialized = true;
+  document.querySelectorAll(".color-palette").forEach((palette) => {
+    const targetId = palette.dataset.target;
+    if (!targetId) return;
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    const updateActive = () => {
+      const value = toHex(target.value, "#000000");
+      const swatches = [...palette.querySelectorAll(".color-swatch[data-color]")];
+      const customBtn = swatches.find((btn) => btn.dataset.color === "custom");
+      const paletteColors = swatches
+        .map((btn) => btn.dataset.color?.toLowerCase())
+        .filter((color) => color && color !== "custom");
+      const isPaletteColor = paletteColors.includes(value);
+      swatches.forEach((btn) => {
+        const color = btn.dataset.color?.toLowerCase();
+        btn.classList.toggle("active", color === value);
+      });
+      if (customBtn) {
+        if (isPaletteColor) {
+          customBtn.classList.remove("active");
+          customBtn.style.background = "";
+        } else {
+          customBtn.classList.add("active");
+          customBtn.style.background = value;
+        }
+      }
+    };
+    palette.addEventListener("click", (event) => {
+      const btn = event.target.closest(".color-swatch[data-color]");
+      if (!btn || !btn.dataset.color) return;
+      if (btn.dataset.color === "custom") return;
+      target.value = btn.dataset.color.toLowerCase();
+      target.dispatchEvent(new Event("change", { bubbles: true }));
+      updateActive();
+    });
+    target.addEventListener("change", updateActive);
+    updateActive();
+  });
+};
+
+const isPaletteEnum = (def) => {
+  if (def.type !== "enum") return false;
+  const options = Array.isArray(def.options) ? def.options : [];
+  return options.length > 0 && options.every((opt) => Boolean(PALETTE_HEX[String(opt).toLowerCase()]));
+};
+
+const buildPaletteControl = (options, currentValue, onSelect) => {
+  const palette = document.createElement("div");
+  palette.className = "color-palette";
+  const normalized = String(currentValue || "").toLowerCase();
+  options.forEach((opt) => {
+    const name = String(opt).toLowerCase();
+    const swatch = document.createElement("button");
+    swatch.type = "button";
+    swatch.className = "color-swatch";
+    swatch.dataset.color = name;
+    swatch.style.background = PALETTE_HEX[name];
+    swatch.title = opt;
+    swatch.setAttribute("aria-label", opt);
+    if (name === normalized) swatch.classList.add("active");
+    palette.appendChild(swatch);
+  });
+  palette.addEventListener("click", (event) => {
+    const btn = event.target.closest(".color-swatch[data-color]");
+    if (!btn || !btn.dataset.color) return;
+    const selected = btn.dataset.color.toLowerCase();
+    palette.querySelectorAll(".color-swatch[data-color]").forEach((swatch) => {
+      swatch.classList.toggle("active", swatch.dataset.color === selected);
+    });
+    onSelect(selected);
+  });
+  return palette;
+};
+
 const updateSafeAreaFromInputs = (shouldPreview = true) => {
   const left = Number(safeLeftInput.value || 0);
   const top = Number(safeTopInput.value || 0);
@@ -734,16 +844,32 @@ const renderTileConfig = (tiles, pluginMeta) => {
 
     if (def.type === "enum") {
       cfgWrap.appendChild(label);
-      const sel = document.createElement("select");
-      sel.dataset.key = key;
-      (def.options || []).forEach((optVal) => {
-        const opt = document.createElement("option");
-        opt.value = optVal;
-        opt.textContent = optVal;
-        if (current[key] === optVal) opt.selected = true;
-        sel.appendChild(opt);
-      });
-      cfgWrap.appendChild(sel);
+      if (isPaletteEnum(def)) {
+        const input = document.createElement("input");
+        input.type = "text";
+        input.className = "color-picker-hidden";
+        input.dataset.key = key;
+        input.value = current[key] ?? def.options[0];
+        const wrap = document.createElement("div");
+        wrap.className = "color-input";
+        wrap.appendChild(input);
+        wrap.appendChild(buildPaletteControl(def.options, input.value, (value) => {
+          input.value = value;
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        }));
+        cfgWrap.appendChild(wrap);
+      } else {
+        const sel = document.createElement("select");
+        sel.dataset.key = key;
+        (def.options || []).forEach((optVal) => {
+          const opt = document.createElement("option");
+          opt.value = optVal;
+          opt.textContent = optVal;
+          if (current[key] === optVal) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        cfgWrap.appendChild(sel);
+      }
       return;
     }
 
@@ -776,7 +902,21 @@ const renderTileConfig = (tiles, pluginMeta) => {
           fieldLabel.textContent = field.label || field.key;
           fieldWrap.appendChild(fieldLabel);
           let input;
-          if (field.type === "enum") {
+          if (field.type === "enum" && isPaletteEnum(field)) {
+            input = document.createElement("input");
+            input.type = "text";
+            input.className = "color-picker-hidden";
+            input.dataset.field = field.key;
+            input.value = value?.[field.key] ?? field.options?.[0] ?? "";
+            const paletteWrap = document.createElement("div");
+            paletteWrap.className = "color-input";
+            paletteWrap.appendChild(input);
+            paletteWrap.appendChild(buildPaletteControl(field.options || [], input.value, (selected) => {
+              input.value = selected;
+              input.dispatchEvent(new Event("change", { bubbles: true }));
+            }));
+            fieldWrap.appendChild(paletteWrap);
+          } else if (field.type === "enum") {
             input = document.createElement("select");
             (field.options || []).forEach((optVal) => {
               const opt = document.createElement("option");
@@ -784,14 +924,18 @@ const renderTileConfig = (tiles, pluginMeta) => {
               opt.textContent = optVal;
               input.appendChild(opt);
             });
+            input.dataset.field = field.key;
+            if (field.placeholder) input.placeholder = field.placeholder;
+            input.value = value?.[field.key] ?? "";
+            fieldWrap.appendChild(input);
           } else {
             input = document.createElement("input");
             input.type = "text";
+            input.dataset.field = field.key;
+            if (field.placeholder) input.placeholder = field.placeholder;
+            input.value = value?.[field.key] ?? "";
+            fieldWrap.appendChild(input);
           }
-          input.dataset.field = field.key;
-          if (field.placeholder) input.placeholder = field.placeholder;
-          input.value = value?.[field.key] ?? "";
-          fieldWrap.appendChild(input);
           row.appendChild(fieldWrap);
           fieldByKey[field.key] = fieldWrap;
         });
@@ -1053,6 +1197,7 @@ const applyConfigToUI = async (config, options = {}) => {
   safeBottomInput.value = safe.bottom ?? SAFE.bottom;
   updateSafeAreaFromInputs(false);
   updateDitherVisibility();
+  refreshColorPalettes();
   if (config.update_interval_minutes != null) {
     scheduleInput.value = String(config.update_interval_minutes);
   } else {
@@ -1125,6 +1270,8 @@ const readSelectedTileConfig = () => {
 const collectConfig = () => {
   const tiles = [];
   const selectedPlugin = tilesEl.querySelector(".plugin-select")?.value;
+  const borderCurrent = currentConfig?.layout?.border || {};
+  const backgroundCurrent = currentConfig?.layout?.background || {};
   currentTiles.forEach((tile, idx) => {
     const existing = (currentConfig?.layout?.tiles || [])[idx] || {};
     const layoutFallback = currentTiles[idx] || {};
@@ -1167,17 +1314,25 @@ const collectConfig = () => {
         radius: borderRadiusInput.value === "" ? 0 : Number(borderRadiusInput.value),
         style: borderStyleSelect.value,
         color: borderColorSelect.value,
-        dither: borderDitherInput ? borderDitherInput.checked : false,
-        dither_color: borderDitherColorSelect ? borderDitherColorSelect.value : "white",
-        dither_step: borderDitherStepInput && borderDitherStepInput.value !== "" ? Number(borderDitherStepInput.value) : 2,
-        dither_ratio: borderDitherRatioInput && borderDitherRatioInput.value !== "" ? Number(borderDitherRatioInput.value) : 0.5,
+        dither: borderDitherInput ? borderDitherInput.checked : (borderCurrent.dither ?? false),
+        dither_color: borderDitherColorSelect ? borderDitherColorSelect.value : (borderCurrent.dither_color ?? "white"),
+        dither_step: borderDitherStepInput && borderDitherStepInput.value !== ""
+          ? Number(borderDitherStepInput.value)
+          : (borderCurrent.dither_step ?? 2),
+        dither_ratio: borderDitherRatioInput && borderDitherRatioInput.value !== ""
+          ? Number(borderDitherRatioInput.value)
+          : (borderCurrent.dither_ratio ?? 0.5),
       },
       background: {
         color: backgroundColorSelect.value,
-        dither: backgroundDitherInput ? backgroundDitherInput.checked : false,
-        dither_color: backgroundDitherColorSelect ? backgroundDitherColorSelect.value : "white",
-        dither_step: backgroundDitherStepInput && backgroundDitherStepInput.value !== "" ? Number(backgroundDitherStepInput.value) : 2,
-        dither_ratio: backgroundDitherRatioInput && backgroundDitherRatioInput.value !== "" ? Number(backgroundDitherRatioInput.value) : 0.5,
+        dither: backgroundDitherInput ? backgroundDitherInput.checked : (backgroundCurrent.dither ?? false),
+        dither_color: backgroundDitherColorSelect ? backgroundDitherColorSelect.value : (backgroundCurrent.dither_color ?? "white"),
+        dither_step: backgroundDitherStepInput && backgroundDitherStepInput.value !== ""
+          ? Number(backgroundDitherStepInput.value)
+          : (backgroundCurrent.dither_step ?? 2),
+        dither_ratio: backgroundDitherRatioInput && backgroundDitherRatioInput.value !== ""
+          ? Number(backgroundDitherRatioInput.value)
+          : (backgroundCurrent.dither_ratio ?? 0.5),
       },
       tiles,
     },
@@ -1243,6 +1398,16 @@ const stableStringify = (value) => {
 const normalizeConfig = (cfg) => {
   const clean = JSON.parse(JSON.stringify(cfg || {}));
   delete clean.update_schedule;
+  if (clean.layout) {
+    const border = clean.layout.border || {};
+    border.color = toHex(border.color, "#000000");
+    border.dither_color = toHex(border.dither_color, "#ffffff");
+    clean.layout.border = border;
+    const background = clean.layout.background || {};
+    background.color = toHex(background.color, "#ffffff");
+    background.dither_color = toHex(background.dither_color, "#ffffff");
+    clean.layout.background = background;
+  }
   if (clean.layout && Array.isArray(clean.layout.tiles)) {
     const defaults = currentPluginMeta?.defaults || {};
     clean.layout.tiles = clean.layout.tiles.map((tile) => {
@@ -1364,6 +1529,7 @@ const init = async () => {
   const presets = data.presets || {};
   const match = data.active || findMatchingPreset(presets, config);
   await applyConfigToUI(config, { selectedPreset: match, skipPresetRefresh: true });
+  initColorPalettes();
   refreshPresetSelect(presets, match);
   if (rafId === null) {
     rafId = requestAnimationFrame(drawLoop);

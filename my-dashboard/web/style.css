@@ -235,6 +235,64 @@ body {
 .layout-grid label + textarea {
   margin-top: -6px;
 }
+.color-input {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.color-picker-hidden {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+.color-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.color-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  padding: 0;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  box-sizing: border-box;
+  flex: 0 0 auto;
+}
+.color-swatch.custom {
+  position: relative;
+  overflow: hidden;
+  background: conic-gradient(
+    #ff0000,
+    #ffa500,
+    #ffff00,
+    #008000,
+    #0000ff,
+    #4b0082,
+    #ff0000
+  );
+}
+.color-picker-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.color-swatch.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
 .layout-grid .checkbox-row,
 .config-grid .checkbox-row {
   display: flex;
