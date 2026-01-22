@@ -786,7 +786,7 @@ def draw_weather_tile_card(ctx, bbox, config):
                 day_x = col_x + max(0, (col_w - day_w) // 2)
                 draw.text((day_x, forecast_y0), day_label, inky.BLACK, font=font_meta)
 
-                icon_size_sm = min(30, max(20, col_w - 6))
+                icon_size_sm = min(22, max(16, col_w - 10))
                 icon_x = col_x + max(0, (col_w - icon_size_sm) // 2)
                 icon_y = forecast_y0 + meta_line_h + 4
                 draw_weather_icon(
@@ -856,9 +856,9 @@ def draw_weather_tile_panel(ctx, bbox, config):
     if not label:
         label = weather_label(weather.get("code")) if weather.get("code") is not None else "Unknown"
     label = truncate_text(draw, label, max(0, right_x - wx - 36), font_meta)
-    icon_size = 34
+    icon_size = 44
     icon_x = wx
-    icon_y = wy + 2
+    icon_y = wy + 4
     draw_weather_icon(
         img,
         draw,

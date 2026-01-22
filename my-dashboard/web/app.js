@@ -2,6 +2,8 @@ const statusEl = document.getElementById("status");
 const applyProgressEl = document.getElementById("applyProgress");
 const applyProgressBarEl = document.getElementById("applyProgressBar");
 const applyBtn = document.getElementById("apply");
+const updateBtn = document.getElementById("updateApp");
+const updateNoticeEl = document.getElementById("updateNotice");
 const saveConfigBtn = document.getElementById("saveConfig");
 const saveAsBtn = document.getElementById("saveAs");
 const tilesEl = document.getElementById("tiles");
@@ -80,6 +82,7 @@ let presetPreview = null;
 let presetPreviewTimer = null;
 let tileAnimations = new Map();
 let applyStatusTimer = null;
+let updateCheckTimer = null;
 let ditherPreviewTimer = null;
 let availableFonts = [];
 
@@ -292,6 +295,34 @@ const loadOpenWeatherKey = async () => {
   if (!openWeatherKeyInput) return;
   const data = await fetchJson("/api/env");
   openWeatherKeyInput.value = data.openweather_api_key || "";
+};
+
+const checkForUpdates = async () => {
+  if (!updateBtn) return;
+  updateBtn.disabled = true;
+  updateBtn.classList.add("is-hidden");
+  updateBtn.classList.remove("update-available");
+  updateBtn.textContent = "Checking...";
+  if (updateNoticeEl) updateNoticeEl.hidden = true;
+  try {
+    const data = await fetchJson("/api/update/check");
+    if (data.error) {
+      updateBtn.textContent = "Update";
+      updateBtn.disabled = false;
+      updateBtn.classList.add("is-hidden");
+      return;
+    }
+    const available = Boolean(data.behind);
+    updateBtn.classList.toggle("update-available", available);
+    updateBtn.textContent = available ? "Update available" : "Update";
+    updateBtn.disabled = !available;
+    updateBtn.classList.toggle("is-hidden", !available);
+    if (updateNoticeEl) updateNoticeEl.hidden = !available;
+  } catch (e) {
+    updateBtn.textContent = "Update";
+    updateBtn.disabled = false;
+    updateBtn.classList.add("is-hidden");
+  }
 };
 
 const refreshFontOptions = (selected) => {
@@ -1538,6 +1569,10 @@ const init = async () => {
   setActiveTab("layout");
   await loadFonts();
   await loadOpenWeatherKey();
+  if (updateBtn) {
+    await checkForUpdates();
+    updateCheckTimer = setInterval(checkForUpdates, 60000);
+  }
   const pluginMeta = await fetchJson("/api/plugins");
   currentPluginMeta = pluginMeta;
   const config = await fetchJson("/api/config");
@@ -1852,6 +1887,25 @@ document.getElementById("apply").addEventListener("click", async () => {
     setUploading(false);
   }
 });
+
+if (updateBtn) {
+  updateBtn.addEventListener("click", async () => {
+    updateBtn.disabled = true;
+    updateBtn.classList.remove("update-available");
+    updateBtn.textContent = "Updating...";
+    try {
+      await fetchJson("/api/update/apply", { method: "POST", body: "{}" });
+      setStatus("Updating, restarting server...");
+      setTimeout(() => {
+        window.location.reload();
+      }, 5000);
+    } catch (e) {
+      setStatus(e.message, false);
+      updateBtn.textContent = "Update";
+      updateBtn.disabled = false;
+    }
+  });
+}
 
 
 presetSelect.addEventListener("change", async () => {

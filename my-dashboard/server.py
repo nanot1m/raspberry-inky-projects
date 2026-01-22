@@ -29,6 +29,7 @@ from my_dashboard import (
 from plugins import PLUGIN_DEFAULTS, PLUGIN_SCHEMAS, PLUGIN_NAMES
 
 BASE_DIR = Path(__file__).resolve().parent
+REPO_ROOT = BASE_DIR.parent
 CONFIG_PATH = BASE_DIR / "config.json"
 OUTPUT_DIR = BASE_DIR / ".generated"
 SCRIPT_PATH = BASE_DIR / "my_dashboard.py"
@@ -43,6 +44,7 @@ _apply_process = None
 _apply_started_at = None
 _apply_last_error = None
 _apply_last_finished_at = None
+_update_last_error = None
 
 
 def read_env_file():
@@ -184,6 +186,72 @@ def update_cron(schedule=None, minutes=None):
     return True, "ok"
 
 
+def _git_cmd(args):
+    return subprocess.run(
+        ["git", *args],
+        cwd=str(REPO_ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+
+
+def check_update_status():
+    global _update_last_error
+    _update_last_error = None
+    is_repo = _git_cmd(["rev-parse", "--is-inside-work-tree"])
+    if is_repo.returncode != 0 or is_repo.stdout.strip() != "true":
+        return {"error": "Not a git repository"}
+    fetch = _git_cmd(["fetch", "origin", "master"])
+    if fetch.returncode != 0:
+        _update_last_error = (fetch.stderr or fetch.stdout or "Failed to fetch").strip()
+        return {"error": _update_last_error}
+    head_cmd = _git_cmd(["rev-parse", "HEAD"])
+    remote_cmd = _git_cmd(["rev-parse", "origin/master"])
+    if head_cmd.returncode != 0 or remote_cmd.returncode != 0:
+        _update_last_error = "Failed to read git refs"
+        return {"error": _update_last_error}
+    head = head_cmd.stdout.strip()
+    remote = remote_cmd.stdout.strip()
+    status = _git_cmd(["status", "--porcelain"]).stdout.strip()
+    return {
+        "head": head,
+        "remote": remote,
+        "behind": bool(head and remote and head != remote),
+        "dirty": bool(status),
+        "error": _update_last_error,
+    }
+
+
+def apply_update():
+    global _update_last_error
+    status = check_update_status()
+    if status.get("error"):
+        return False, status["error"]
+    if status.get("dirty"):
+        return False, "Local changes present. Commit or stash before updating."
+    if not status.get("behind"):
+        return True, "Already up to date."
+    pull = _git_cmd(["pull", "--ff-only", "origin", "master"])
+    if pull.returncode != 0:
+        _update_last_error = (pull.stderr or pull.stdout or "Failed to pull").strip()
+        return False, _update_last_error
+    return True, "Updated"
+
+
+def restart_server():
+    result = subprocess.run(
+        ["systemctl", "restart", "my-dashboard-http.service"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError((result.stderr or result.stdout or "Failed to restart").strip())
+
+
 class DashboardHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, directory=None, **kwargs):
         super().__init__(*args, directory=str(BASE_DIR / "web"), **kwargs)
@@ -319,6 +387,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception:
                 active = None
             return self._send_json({"presets": presets, "active": active})
+        if self.path.startswith("/api/update/check"):
+            status = check_update_status()
+            return self._send_json(status)
         return super().do_GET()
 
     def do_POST(self):
@@ -471,6 +542,19 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:
                 return self._send_json({"error": str(exc)}, status=500)
             return self._send_json({"ok": True, "running": True})
+
+        if self.path.startswith("/api/update/apply"):
+            ok, message = apply_update()
+            if not ok:
+                return self._send_json({"error": message}, status=400)
+            def _restart():
+                time.sleep(1)
+                try:
+                    restart_server()
+                except Exception:
+                    pass
+            threading.Thread(target=_restart, daemon=True).start()
+            return self._send_json({"ok": True, "message": message})
 
         return self._send_json({"error": "Not found"}, status=404)
 
