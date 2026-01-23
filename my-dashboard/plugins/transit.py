@@ -1,7 +1,8 @@
 import time
+from datetime import datetime
 from urllib.parse import quote
 
-from utils import fetch_json, parse_when, text_size, truncate_text
+from utils import fetch_json, text_size, truncate_text
 
 _LAST_DEPARTURES = {}
 
@@ -26,6 +27,29 @@ TRANSIT_SCHEMA = {
 }
 
 
+def parse_departure_time(when):
+    if not when:
+        return "--:--", None
+    try:
+        dt = datetime.fromisoformat(when.replace("Z", "+00:00")).astimezone()
+        return dt.strftime("%H:%M"), dt.timestamp()
+    except ValueError:
+        return "--:--", None
+
+
+def normalize_rows(rows):
+    normalized = []
+    for row in rows or []:
+        if len(row) == 5:
+            normalized.append(row)
+        elif len(row) == 4:
+            when, line, group_direction, display_direction = row
+            normalized.append((when, None, line, group_direction, display_direction))
+        elif len(row) == 1:
+            normalized.append((row[0], None, "", "", ""))
+    return normalized
+
+
 def get_tram_departures(stop_query, line_filter=None):
     stops_url = (
         "https://v6.bvg.transport.rest/stops"
@@ -35,14 +59,14 @@ def get_tram_departures(stop_query, line_filter=None):
     if not stops:
         cached = _LAST_DEPARTURES.get(stop_query)
         if cached:
-            return cached["stop_name"], cached["rows"]
-        return stop_query, [("No stop data", "", "", "")]
+            return cached["stop_name"], normalize_rows(cached["rows"])
+        return stop_query, [("No stop data", None, "", "", "")]
 
     stop = stops[0]
     stop_id = stop.get("id")
     stop_name = stop.get("name", stop_query)
     if not stop_id:
-        return stop_name, [("No stop ID", "", "", "")]
+        return stop_name, [("No stop ID", None, "", "", "")]
     stop_id = stop_id.split(":")[2] if ":" in stop_id else stop_id
 
     dep_url = (
@@ -53,14 +77,14 @@ def get_tram_departures(stop_query, line_filter=None):
     if not departures:
         cached = _LAST_DEPARTURES.get(stop_query)
         if cached:
-            return cached["stop_name"], cached["rows"]
+            return cached["stop_name"], normalize_rows(cached["rows"])
         label = line_filter or "Tram"
-        return stop_name, [(f"No {label} data", "", "", "")]
+        return stop_name, [(f"No {label} data", None, "", "", "")]
     if isinstance(departures, dict):
         departures = departures.get("departures", [])
     if not isinstance(departures, list):
         label = line_filter or "Tram"
-        return stop_name, [(f"No {label} data", "", "", "")]
+        return stop_name, [(f"No {label} data", None, "", "", "")]
     rows = []
     def next_stop_name(stopovers, current_stop_id):
         if not stopovers:
@@ -94,13 +118,13 @@ def get_tram_departures(stop_query, line_filter=None):
         next_stop = next_stop_name(stopovers, stop_id)
         if next_stop:
             group_direction = next_stop
-        when = parse_when(dep.get("when") or dep.get("plannedWhen"))
-        rows.append((when, line, group_direction, display_direction))
+        when_text, when_sort = parse_departure_time(dep.get("when") or dep.get("plannedWhen"))
+        rows.append((when_text, when_sort, line, group_direction, display_direction))
         if len(rows) >= 16:
             break
     if not rows:
         label = line_filter or "Tram"
-        rows.append((f"No {label} departures", "", "", ""))
+        rows.append((f"No {label} departures", None, "", "", ""))
     else:
         _LAST_DEPARTURES[stop_query] = {
             "stop_name": stop_name,
@@ -189,7 +213,7 @@ def draw_tram_rows(draw, y, columns, rows, fonts, inky, line_bg, line_text_color
     count = 0
     row_h = max(16, line_height(draw, font_body) + 4)
     text_h = line_height(draw, font_body)
-    for when, line, group_direction, display_direction in rows:
+    for when, _, line, group_direction, display_direction in rows:
         text_y = y + max(0, (row_h - text_h) // 2)
         draw.text((table_left, text_y), when, inky.BLACK, font=font_body)
         line_x = table_left + col_time + gap
@@ -251,12 +275,12 @@ def draw_transit_tile(ctx, bbox, config):
         line_badge_y_offset = DEFAULT_TRANSIT_CONFIG["line_badge_y_offset"]
     max_rows = DEFAULT_TRANSIT_CONFIG["max_rows_per_group"]
     stub_rows = [
-        ("12:05", "M5", "S+U Hauptbahnhof", "S+U Hauptbahnhof"),
-        ("12:12", "M5", "S+U Hauptbahnhof", "S+U Hauptbahnhof"),
-        ("12:19", "M5", "S+U Hauptbahnhof", "S+U Hauptbahnhof"),
-        ("12:07", "M5", "Zingster Str.", "Zingster Str."),
-        ("12:14", "M5", "Zingster Str.", "Zingster Str."),
-        ("12:21", "M5", "Zingster Str.", "Zingster Str."),
+        ("12:05", None, "M5", "S+U Hauptbahnhof", "S+U Hauptbahnhof"),
+        ("12:12", None, "M5", "S+U Hauptbahnhof", "S+U Hauptbahnhof"),
+        ("12:19", None, "M5", "S+U Hauptbahnhof", "S+U Hauptbahnhof"),
+        ("12:07", None, "M5", "Zingster Str.", "Zingster Str."),
+        ("12:14", None, "M5", "Zingster Str.", "Zingster Str."),
+        ("12:21", None, "M5", "Zingster Str.", "Zingster Str."),
     ]
 
     for stop_query in stops:
@@ -282,13 +306,13 @@ def draw_transit_tile(ctx, bbox, config):
             return len(a_tokens & b_tokens)
 
         raw_keys = []
-        for _, _, group_direction, _ in rows:
+        for _, _, _, group_direction, _ in rows:
             key = normalize_direction(group_direction) or ""
             if key not in raw_keys:
                 raw_keys.append(key)
         allow_merge = len(raw_keys) > 2
 
-        for when, line, group_direction, display_direction in rows:
+        for when, when_sort, line, group_direction, display_direction in rows:
             key = normalize_direction(group_direction) or ""
             if key not in group_index:
                 if len(groups) < 2:
@@ -299,7 +323,7 @@ def draw_transit_tile(ctx, bbox, config):
                     best_idx = 0
                     best_score = -1
                     for idx, group_rows in enumerate(groups):
-                        group_name = group_rows[0][2] if group_rows else ""
+                        group_name = group_rows[0][3] if group_rows else ""
                         score = token_overlap(key, group_name)
                         if score > best_score:
                             best_score = score
@@ -311,7 +335,7 @@ def draw_transit_tile(ctx, bbox, config):
                 else:
                     # Keep only two distinct directions and drop extras into the second group.
                     group_index[key] = 1
-            groups[group_index[key]].append((when, line, group_direction, display_direction))
+            groups[group_index[key]].append((when, when_sort, line, group_direction, display_direction))
 
         y, columns = draw_tram_table(
             draw,
@@ -344,7 +368,7 @@ def draw_transit_tile(ctx, bbox, config):
         }
 
         def group_direction_score(group_rows):
-            for _, _, group_direction, _ in group_rows:
+            for _, _, _, group_direction, _ in group_rows:
                 if group_direction:
                     name = abbreviate_berlin_destination(group_direction).lower()
                     for token in west_keywords:
@@ -355,8 +379,19 @@ def draw_transit_tile(ctx, bbox, config):
                             return 1
             return 2
 
+        def departure_sort_key(row):
+            when_text, when_sort, _, _, _ = row
+            if when_sort is not None:
+                return when_sort
+            try:
+                hours, minutes = when_text.split(":", 1)
+                return int(hours) * 60 + int(minutes)
+            except (ValueError, AttributeError):
+                return float("inf")
+
         groups = sorted(groups, key=group_direction_score)
         for idx, group_rows in enumerate(groups):
+            group_rows.sort(key=departure_sort_key)
             if idx > 0:
                 y += 4
             y = draw_tram_rows(
